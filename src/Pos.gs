@@ -176,7 +176,38 @@ function parseLines_(items, allowEmpty) {
     const q = Number(it && it.qty);
     if (!id) throw new Error('Ada item tanpa produk di keranjang.');
     if (!Number.isInteger(q) || q < 1 || q > 999) throw new Error('Jumlah item tidak valid (harus 1 sampai 999).');
-    return { lid: cleanLid_(it.lid), productId: id, qty: q, disc: readDiscount_(it.disc, 'item'), note: cleanNote_(it.note) };
+    let mods = Array.isArray(it.mods) ? it.mods.map(function (m) { return String((m && m.id) || m || '').trim(); }).filter(String) : [];
+    if (mods.length > 6) throw new Error('Terlalu banyak tambahan pada satu item (maks. 6).');
+    mods = mods.filter(function (m, i) { return mods.indexOf(m) === i; });
+    return { lid: cleanLid_(it.lid), productId: id, qty: q, disc: readDiscount_(it.disc, 'item'), note: cleanNote_(it.note), mods: mods };
+  });
+}
+
+function modifierCategory_() { return String(getSettingsMap_().Modifier_Category || 'Add-ons').trim(); }
+function lineUnit_(l) {
+  return (Number(l.price) || 0) + (l.mods || []).reduce(function (s, m) { return s + (Number(m.price) || 0); }, 0);
+}
+function modsText_(mods) { return (mods || []).map(function (m) { return m.name; }).join(', '); }
+
+/**
+ * Add-ons (e.g. "Syrup Vanilla" +10.000) chosen on a line. They must be active products in the
+ * Modifier_Category with the same recipe group as the item. oldMods = mods saved on a table line
+ * (used when an add-on was switched off later).
+ */
+function priceMods_(ids, p, oldMods, products) {
+  const cat = modifierCategory_().toLowerCase();
+  const olds = {};
+  (oldMods || []).forEach(function (m) { olds[m.id] = m; });
+  return (ids || []).map(function (id) {
+    const m = products[id];
+    if (m) {
+      if (String(m.category).toLowerCase() !== cat) throw new Error(m.name + ' bukan produk tambahan.');
+      if (p && m.recipeGroup !== p.recipeGroup) throw new Error(m.name + ' tidak bisa ditambahkan ke ' + p.name + '.');
+      return { id: m.id, name: m.name, price: m.price, cost: m.cost, category: m.category, group: m.recipeGroup };
+    }
+    const o = olds[id];
+    if (!o) throw jayaError_('Ada tambahan yang sudah tidak tersedia (' + id + '). Menu akan dimuat ulang.', 'PRICE_CHANGED');
+    return { id: o.id, name: o.name, price: Number(o.price) || 0, cost: 0, category: modifierCategory_(), group: '' };
   });
 }
 
@@ -192,11 +223,13 @@ function priceLines_(parsed, fallback, products) {
     const old = fallback && l.lid ? fallback[l.lid] : null;
     if (!p && !old) throw jayaError_('Ada produk di keranjang yang sudah tidak tersedia (' + l.productId + '). Menu akan dimuat ulang.', 'PRICE_CHANGED');
     const price = p ? p.price : Number(old.price) || 0;
-    const total = price * l.qty;
+    const mods = priceMods_(l.mods, p, old ? old.mods : null, products);
+    const total = lineUnit_({ price: price, mods: mods }) * l.qty;
     const name = p ? p.name : old.name;
     if (l.disc && l.disc.type === 'AMT' && l.disc.value > total) throw new Error('Diskon untuk ' + name + ' lebih besar dari harganya.');
     return { lid: l.lid, productId: l.productId, name: name, category: p ? p.category : 'Other', qty: l.qty, price: price,
-             cost: p ? p.cost : 0, total: total, disc: l.disc, note: l.note || '', group: p ? p.recipeGroup : (old.grp || 'NONE') };
+             cost: p ? p.cost : 0, total: total, disc: l.disc, note: l.note || '', group: p ? p.recipeGroup : (old.grp || 'NONE'),
+             mods: mods };
   });
 }
 
@@ -231,6 +264,7 @@ function apiGetPosData(token) {
       maxDiscountPct: isAdmin ? 100 : Math.max(0, Math.min(100, numOr_(s.Max_Discount_Percent, 100))),
       showImages: isTrue_(s.Show_Product_Images),
       quickNotes: listSetting_('Quick_Notes').slice(0, 20),
+      modifierCategory: modifierCategory_(),
       canPay: canPay,
       shift: { required: isTrue_(s.Require_Shift), open: shiftOpen, canManage: hasPerm_(user.role, 'shift.manage') },
       charges: chargeSettings_()
@@ -329,7 +363,8 @@ function apiCompleteOrder(token, order) {
         const fallback = {};
         bill.items.forEach(function (l) { fallback[l.lid] = l; });
         lines = priceLines_(picked.pay.map(function (l) {
-          return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '' };
+          return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '',
+                   mods: (l.mods || []).map(function (m) { return m.id; }) };
         }), fallback, products);
       } else {
         lines = takeawayLines;
@@ -363,7 +398,10 @@ function apiCompleteOrder(token, order) {
       const sameMethod = methods.every(function (m) { return m === methods[0]; });
       const method = sameMethod ? methods[0] : 'MIXED';
 
-      lines.forEach(function (l) { if (rdata.recipes[l.productId]) l.cost = rdata.recipes[l.productId].perServing; });
+      lines.forEach(function (l) {
+        if (rdata.recipes[l.productId]) l.cost = rdata.recipes[l.productId].perServing;
+        l.mods.forEach(function (m) { if (rdata.recipes[m.id]) m.cost = rdata.recipes[m.id].perServing; });
+      });
 
       const now = new Date();
       const dateKey = fmt_(now, 'yyyyMMdd');
@@ -387,11 +425,7 @@ function apiCompleteOrder(token, order) {
 
       const dateStr = fmt_(now, 'yyyy-MM-dd');
       const stamp = fmt_(now, 'yyyy-MM-dd HH:mm:ss');
-      appendObjects_('Transaction_Details', lines.map(function (l, i) {
-        return { Transaction_ID: txId, Line_No: i + 1, Product_ID: l.productId, Product_Name: l.name,
-                 Category: l.category, Quantity: l.qty, Unit_Price: l.price, Total: l.total, Unit_Cost: l.cost,
-                 Date: dateStr, Discount: l.discount, Discount_Info: discountInfo_(l.disc), Net_Total: l.netTotal, Note: l.note || '' };
-      }));
+      appendObjects_('Transaction_Details', detailRows_(txId, dateStr, lines));
       appendObjects_('Transactions', [{
         Transaction_ID: txId, Date: dateStr, Time: fmt_(now, 'HH:mm'), Cashier: user.name,
         Subtotal: tot.subtotal, Discount: tot.discount, Grand_Total: tot.grand, Payment_Method: method,
@@ -415,7 +449,7 @@ function apiCompleteOrder(token, order) {
       if (bill) {
         const paidTx = bill.paidTx.concat([txId]);
         if (picked.rest.length) {
-          const restTotals = calcTotals_(picked.rest.map(function (l) { return { total: (Number(l.price) || 0) * l.qty, disc: l.disc }; }), {}, ch);
+          const restTotals = calcTotals_(picked.rest.map(function (l) { return { total: lineUnit_(l) * l.qty, disc: l.disc }; }), {}, ch);
           updateRow_('Open_Orders', bill.row, {
             Items_JSON: JSON.stringify(picked.rest), Subtotal: restTotals.itemsNet, Paid_Transactions: paidTx.join(','),
             Updated_At: stamp, Updated_By: user.name, Version: bill.version + 1
@@ -432,9 +466,9 @@ function apiCompleteOrder(token, order) {
       CacheService.getScriptCache().put('ref_' + clientRef, txId, 21600);
       if (!bill) {
         createTicket_({ orderId: txId, tableName: 'Takeaway', guest: guest, round: 1, kind: 'ORDER', user: user },
-                      lines.map(function (l) { return { id: l.productId, name: l.name, qty: l.qty, note: l.note, grp: l.group }; }), products);
+                      lines.map(function (l) { return { id: l.productId, name: l.name, qty: l.qty, note: l.note, grp: l.group, mods: l.mods }; }), products);
       }
-      try { inventoryOnSale_(txId, lines, user, rdata); }
+      try { inventoryOnSale_(txId, stockLines_(lines), user, rdata); }
       catch (e) { audit_(user, 'INVENTORY_ERROR', 'Transaction', txId, String(e && e.message || e)); }
       if (order.applyTax === false && ch.taxPct > 0) {
         audit_(user, 'TAX_REMOVED', 'Transaction', txId, { total: tot.grand });
@@ -449,6 +483,40 @@ function apiCompleteOrder(token, order) {
       return receipt;
     });
   });
+}
+
+/** One row per item, plus one row per add-on (Modifier_Of = the item's Line_No). The line discount is shared by value. */
+function detailRows_(txId, dateStr, lines) {
+  const rows = [];
+  let n = 0;
+  lines.forEach(function (l) {
+    const no = ++n;
+    const baseGross = l.price * l.qty;
+    let left = l.discount;
+    const modRows = l.mods.map(function (m) {
+      const gross = m.price * l.qty;
+      const d = l.total ? Math.round(l.discount * gross / l.total) : 0;
+      left -= d;
+      return { Transaction_ID: txId, Line_No: ++n, Product_ID: m.id, Product_Name: m.name, Category: m.category, Quantity: l.qty,
+               Unit_Price: m.price, Total: gross, Unit_Cost: m.cost || 0, Date: dateStr, Discount: d, Discount_Info: discountInfo_(l.disc),
+               Net_Total: gross - d, Note: '', Modifier_Of: no };
+    });
+    rows.push({ Transaction_ID: txId, Line_No: no, Product_ID: l.productId, Product_Name: l.name, Category: l.category, Quantity: l.qty,
+                Unit_Price: l.price, Total: baseGross, Unit_Cost: l.cost, Date: dateStr, Discount: left, Discount_Info: discountInfo_(l.disc),
+                Net_Total: baseGross - left, Note: l.note || '', Modifier_Of: '' });
+    modRows.forEach(function (r) { rows.push(r); });
+  });
+  return rows;
+}
+
+/** Items + add-ons as separate lines, for recipe stock deduction. */
+function stockLines_(lines) {
+  const out = [];
+  lines.forEach(function (l) {
+    out.push(l);
+    l.mods.forEach(function (m) { out.push({ productId: m.id, qty: l.qty }); });
+  });
+  return out;
 }
 
 function statusWord_(s) {
@@ -502,7 +570,8 @@ function getTransactionDetails_(txId) {
       const disc = moneyNum_(o.Discount) || 0;
       return { productId: String(o.Product_ID), name: String(o.Product_Name), category: String(o.Category),
                qty: Number(o.Quantity) || 0, price: moneyNum_(o.Unit_Price) || 0, total: total,
-               discount: disc, discountInfo: String(o.Discount_Info || ''), netTotal: total - disc, note: String(o.Note || '') };
+               discount: disc, discountInfo: String(o.Discount_Info || ''), netTotal: total - disc, note: String(o.Note || ''),
+               lineNo: Number(o.Line_No) || 0, modifierOf: Number(o.Modifier_Of) || 0 };
     });
 }
 

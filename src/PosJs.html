@@ -12,6 +12,7 @@ const Pos = {
              cashRounding: 0, roundingMode: 'NEAREST' },
   applyService: false, applyTax: true,
   guest: '',       // takeaway guest name
+  mods: [], modCat: 'Add-ons',   // add-on products (syrup …) and their category
   split: null,     // bagi rata: { parts: [{ method, cash }] }
   payLines: null,  // split per item (table): { lid: qty }
   ctx: null,       // table bill: { orderId, tableId, tableName, pax, guest, version, savedPax, savedGuest, savedKey, paidCount }
@@ -33,6 +34,16 @@ Views.pos = function () {
   if (!Pos.loaded) posLoad();
   else { posRenderAll(); posCheckShift(); }
 };
+
+/** Price of one portion including add-ons (syrup etc.). */
+function unitOf(l) { return l.price + (l.mods || []).reduce(function (a, m) { return a + (Number(m.price) || 0); }, 0); }
+function modsKey(l) { return (l.mods || []).map(function (m) { return m.id; }).sort().join('+'); }
+/** Add-ons that can go on this product: Modifier_Category products of the same recipe group. */
+function modsFor(productId) {
+  const p = Pos.byId[productId];
+  if (!p) return [];
+  return Pos.mods.filter(function (m) { return m.group === p.group; });
+}
 
 function newLid() {
   let r = '';
@@ -57,6 +68,7 @@ function posRestoreDraft() {
     if (!d || !Array.isArray(d.cart) || !d.cart.length) return false;
     Pos.cart = d.cart.filter(function (l) { return l && l.id && l.qty > 0; }).map(function (l) {
       return { lid: l.lid || newLid(), id: l.id, name: l.name, price: l.price, qty: l.qty, disc: l.disc || null, note: l.note || '',
+               mods: Array.isArray(l.mods) ? l.mods : [],
                grp: l.grp || '', round: 0, at: '', by: '', from: '', savedQty: 0 };
     });
     Pos.ref = d.ref || null;
@@ -111,7 +123,10 @@ function posSyncInputs() {
 
 /** Stores the menu and updates cart prices to the latest ones. */
 function posSetProducts(d) {
-  Pos.products = d.products;
+  Pos.modCat = d.modifierCategory || 'Add-ons';
+  const isMod = function (p) { return String(p.category).toLowerCase() === Pos.modCat.toLowerCase(); };
+  Pos.mods = d.products.filter(isMod);
+  Pos.products = d.products.filter(function (p) { return !isMod(p); });
   Pos.allowDiscount = d.allowDiscount;
   Pos.maxDiscountPct = d.maxDiscountPct == null ? 100 : d.maxDiscountPct;
   Pos.showImages = d.showImages;
@@ -122,7 +137,7 @@ function posSetProducts(d) {
   Pos.byId = {};
   d.products.forEach(function (p) { Pos.byId[p.id] = p; });
   const present = [];
-  d.products.forEach(function (p) { if (present.indexOf(p.category) < 0) present.push(p.category); });
+  Pos.products.forEach(function (p) { if (present.indexOf(p.category) < 0) present.push(p.category); });
   const ordered = d.categories.filter(function (c) { return present.indexOf(c) >= 0; });
   present.forEach(function (c) { if (ordered.indexOf(c) < 0) ordered.push(c); });
   Pos.categories = [ALL_CAT].concat(ordered);
@@ -139,6 +154,10 @@ function posSetProducts(d) {
     l.name = p.name;
     l.price = p.price;
     l.grp = p.group || l.grp;
+    if (!l.round) {
+      l.mods = (l.mods || []).filter(function (m) { return Pos.byId[m.id]; });
+      l.mods.forEach(function (m) { m.price = Pos.byId[m.id].price; m.name = Pos.byId[m.id].name; });
+    }
     return true;
   });
   if (!Pos.allowDiscount) {
@@ -176,7 +195,7 @@ function posPayLines() {
       const part = Math.round(l.disc.value * q / l.qty);
       disc = part > 0 ? { type: 'AMT', value: part } : null;
     }
-    out.push({ lid: l.lid, price: l.price, qty: q, disc: disc });
+    out.push({ lid: l.lid, price: unitOf(l), qty: q, disc: disc });
   });
   return out;
 }
@@ -189,12 +208,12 @@ function posTotals() {
   const ch = Pos.charges;
   let subtotal = 0, itemDiscount = 0, items = 0, payItems = 0;
   Pos.cart.forEach(function (l) {
-    const gross = l.price * l.qty;
+    const gross = unitOf(l) * l.qty;
     l._disc = Math.min(gross, discAmount(l.disc, gross));
     items += l.qty;
   });
   posPayLines().forEach(function (l) {
-    const gross = l.price * l.qty;
+    const gross = (l.mods ? unitOf(l) : l.price) * l.qty;
     subtotal += gross;
     itemDiscount += Math.min(gross, discAmount(l.disc, gross));
     payItems += l.qty;
@@ -262,6 +281,7 @@ function posLoadBill(order) {
   Pos.cart = (order.items || []).map(function (i) {
     const p = Pos.byId[i.id];
     return { lid: i.lid, id: i.id, name: p ? p.name : i.name, price: p ? p.price : i.price, qty: Number(i.qty) || 1, disc: i.disc || null,
+             mods: (i.mods || []).map(function (m) { const mp = Pos.byId[m.id]; return { id: m.id, name: m.name, price: mp ? mp.price : m.price }; }),
              note: i.note || '', grp: i.grp || (p ? p.group : ''), round: Number(i.round) || 1, at: i.at || '', by: i.by || '',
              from: i.from || '', savedQty: Number(i.qty) || 1 };
   });
@@ -462,7 +482,8 @@ async function posSaveTable(opts) {
     const o = await api('apiSaveOpenOrder', App.token, {
       orderId: Pos.ctx.orderId, version: Pos.ctx.version, pax: Pos.ctx.pax, guestName: Pos.ctx.guest, voidReason: voidReason,
       lines: Pos.cart.filter(function (l) { return l.qty > 0; }).map(function (l) {
-        return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '' };
+        return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '',
+                 mods: (l.mods || []).map(function (m) { return m.id; }) };
       })
     });
     const msg = 'Tersimpan ke ' + Pos.ctx.tableName + (o.addedRound ? ' · Pesanan ' + o.addedRound + ' (' + newCount + ' item) dikirim ke dapur/bar' : '') +
@@ -510,7 +531,7 @@ function posItemDiscount(lid) {
   if (!Pos.allowDiscount) return toast('Diskon dimatikan untuk kasir.', 'warn');
   if (!l.qty) return;
   const d = l.disc || { type: 'PCT', value: 0 };
-  const html = '<div class="row-sub">' + l.qty + ' x ' + rp(l.price) + ' = ' + rp(l.qty * l.price) + '</div>' +
+  const html = '<div class="row-sub">' + l.qty + ' x ' + rp(unitOf(l)) + ' = ' + rp(l.qty * unitOf(l)) + '</div>' +
     '<div class="field"><span>Jenis diskon</span><div class="seg wide" id="idType">' +
     '<button type="button" data-t="PCT"' + (d.type === 'PCT' ? ' class="active"' : '') + '>Persen (%)</button>' +
     '<button type="button" data-t="AMT"' + (d.type === 'AMT' ? ' class="active"' : '') + '>Rupiah (Rp)</button></div></div>' +
@@ -526,7 +547,7 @@ function posItemDiscount(lid) {
     return type === 'AMT' ? parseMoney(raw) : Number(String(raw).replace(',', '.')) || 0;
   };
   const paint = function () {
-    const gross = l.qty * l.price;
+    const gross = l.qty * unitOf(l);
     const amt = Math.min(gross, discAmount({ type: type, value: read() }, gross));
     $('idLabel').textContent = type === 'PCT' ? 'Diskon (%)' : 'Diskon (Rp) untuk baris ini';
     $('idAmount').textContent = '-' + rp(amt);
@@ -561,7 +582,7 @@ function posItemDiscount(lid) {
       const v = read();
       if (!v) { l.disc = null; posAfterChange(); return; }
       if (type === 'PCT' && (v <= 0 || v > 100)) throw new Error('Diskon persen harus antara 0 dan 100.');
-      if (type === 'AMT' && v > l.qty * l.price) throw new Error('Diskon lebih besar dari harga baris ini.');
+      if (type === 'AMT' && v > l.qty * unitOf(l)) throw new Error('Diskon lebih besar dari harga baris ini.');
       const old = l.disc;
       l.disc = { type: type, value: type === 'PCT' ? Math.round(v * 100) / 100 : v };
       const lim = checkDiscLimit(posTotals());
@@ -609,10 +630,66 @@ function posNote(lid) {
       if (q < l.qty && note !== l.note) {
         const copy = Object.assign({}, l, { lid: newLid(), qty: q, note: note, disc: null });
         l.qty -= q;
-        if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * l.price) l.disc = null;
+        if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * unitOf(l)) l.disc = null;
         Pos.cart.splice(Pos.cart.indexOf(l) + 1, 0, copy);
       } else {
         l.note = note;
+      }
+      posAfterChange();
+    }
+  });
+}
+
+/** Short button label, e.g. "Syrup" when every add-on starts with "Syrup ". */
+function modsLabel(productId) {
+  const list = modsFor(productId);
+  const first = list.length ? String(list[0].name).split(' ')[0] : '';
+  return first && list.every(function (m) { return String(m.name).split(' ')[0] === first; }) ? first : 'Tambahan';
+}
+
+/* ---------- Add-ons (syrup +10rb …) on one line ---------- */
+function posMods(lid) {
+  const l = lineByLid(lid);
+  if (!l || l.round) return;
+  const list = modsFor(l.id);
+  const chosen = {};
+  (l.mods || []).forEach(function (m) { chosen[m.id] = true; });
+  const html = '<p class="small muted">Pilih tambahan untuk ' + esc(l.name) + '. Harga tambahan masuk ke baris ini dan muncul di layar bar/dapur.</p>' +
+    '<div class="mod-list">' + list.map(function (m) {
+      return '<button type="button" class="mod-opt' + (chosen[m.id] ? ' active' : '') + '" data-m="' + esc(m.id) + '"><span>' + esc(m.name) +
+        '</span><b>+' + rp(m.price) + '</b></button>';
+    }).join('') + '</div>' +
+    (l.qty > 1 ? '<label class="field"><span>Untuk berapa porsi?</span><input id="modQty" type="number" inputmode="numeric" min="1" max="' + l.qty + '" value="' + l.qty + '">' +
+      '<span class="help">Isi lebih kecil dari ' + l.qty + ' kalau tambahannya hanya untuk sebagian (contoh: 1 dari 2 pakai vanilla). Baris akan dipisah.</span></label>' : '') +
+    '<div class="sum-row"><span>Harga per porsi</span><b id="modUnit"></b></div>';
+  const paint = function () {
+    const ids = Object.keys(chosen).filter(function (k) { return chosen[k]; });
+    $('modUnit').textContent = rp(l.price + ids.reduce(function (a, id) { return a + (Pos.byId[id] ? Pos.byId[id].price : 0); }, 0));
+  };
+  openCustom({
+    title: 'Tambahan: ' + l.name, html: html, submitLabel: 'Simpan',
+    onOpen: function (body) {
+      paint();
+      body.onclick = function (e) {
+        const b = e.target.closest('[data-m]');
+        if (!b) return;
+        chosen[b.dataset.m] = !chosen[b.dataset.m];
+        b.classList.toggle('active', !!chosen[b.dataset.m]);
+        paint();
+      };
+    },
+    onSubmit: async function () {
+      const mods = list.filter(function (m) { return chosen[m.id]; }).map(function (m) { return { id: m.id, name: m.name, price: m.price }; });
+      const q = $('modQty') ? Number($('modQty').value) : l.qty;
+      if (!Number.isInteger(q) || q < 1 || q > l.qty) throw new Error('Jumlah porsi harus 1 sampai ' + l.qty + '.');
+      if (q < l.qty && modsKey({ mods: mods }) !== modsKey(l)) {
+        const copy = Object.assign({}, l, { lid: newLid(), qty: q, mods: mods, disc: null });
+        l.qty -= q;
+        if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * unitOf(l)) l.disc = null;
+        Pos.cart.splice(Pos.cart.indexOf(l) + 1, 0, copy);
+      } else {
+        l.mods = mods;
+        if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * unitOf(l)) l.disc = null;
       }
       posAfterChange();
     }
@@ -659,14 +736,14 @@ function posSplitItems() {
   lines.forEach(function (l) { pick[l.lid] = Pos.payLines ? (Pos.payLines[l.lid] || 0) : 0; });
   const rowHtml = function (l) {
     return '<div class="pick-row" data-lid="' + esc(l.lid) + '"><div><b>' + esc(l.name) + '</b>' +
-      '<div class="small muted">' + l.qty + ' x ' + rp(l.price) + (l.note ? ' · ' + esc(l.note) : '') + ' · Pesanan ' + l.round + '</div></div>' +
+      '<div class="small muted">' + l.qty + ' x ' + rp(unitOf(l)) + (l.mods && l.mods.length ? ' · + ' + esc(l.mods.map(function (m) { return m.name; }).join(', ')) : '') + (l.note ? ' · ' + esc(l.note) : '') + ' · Pesanan ' + l.round + '</div></div>' +
       '<div class="qty"><button class="q-btn" type="button" data-p="dec">−</button><span class="q-val pick-val">' + pick[l.lid] + '/' + l.qty +
       '</span><button class="q-btn" type="button" data-p="inc">+</button></div>' +
       '<button class="link-btn small" type="button" data-p="all">Semua</button></div>';
   };
   const paint = function () {
     let sum = 0, n = 0;
-    lines.forEach(function (l) { sum += pick[l.lid] * l.price; n += pick[l.lid]; });
+    lines.forEach(function (l) { sum += pick[l.lid] * unitOf(l); n += pick[l.lid]; });
     $('pickSum').textContent = n + ' item dipilih · ' + rp(sum) + ' (sebelum diskon, service & pajak)';
   };
   openCustom({
@@ -770,20 +847,23 @@ function cashSuggestions(total) {
 
 function lineHtml(l) {
   const saved = !!l.round;
-  const gross = l.price * l.qty;
+  const gross = unitOf(l) * l.qty;
   const voided = saved && l.qty < l.savedQty;
   const pickQ = Pos.payLines ? Math.min(l.qty, Pos.payLines[l.lid] || 0) : null;
   const dim = Pos.payLines && !pickQ;
   const note = l.note ? '<div class="cl-note">📝 ' + esc(l.note) + '</div>' : '';
   const noteBtn = !saved ? '<button class="link-btn small" type="button" data-act="note">' + (l.note ? 'Ubah catatan' : '+ Catatan') + '</button>' : '';
+  const canMods = !saved && modsFor(l.id).length;
+  const modBtn = canMods ? '<button class="link-btn small" type="button" data-act="mods">' + (l.mods && l.mods.length ? 'Ubah tambahan' : '+ ' + esc(modsLabel(l.id))) + '</button>' : '';
+  const modTxt = l.mods && l.mods.length ? '<div class="cl-mods">' + l.mods.map(function (m) { return '+ ' + esc(m.name) + ' <span class="muted">' + rp(m.price) + '</span>'; }).join('<br>') + '</div>' : '';
   const discTxt = l._disc ? '<div class="cl-disc">Diskon ' + esc(discLabel(l.disc)) + ' · -' + rp(l._disc) + '</div>' : '';
   const discBtn = Pos.allowDiscount && l.qty ? '<button class="link-btn small" type="button" data-act="disc">' + (l.disc ? 'Ubah diskon' : '+ Diskon') + '</button>' : '';
   const tags = (voided ? '<span class="pill bad">' + (l.qty ? '−' + (l.savedQty - l.qty) + ' akan di-void' : 'akan di-void') + '</span>' : '') +
     (pickQ ? '<span class="pill info">bayar ' + pickQ + (pickQ < l.qty ? ' dari ' + l.qty : '') + '</span>' : '');
   return '<div class="cart-line' + (saved ? ' saved' : ' new') + (dim ? ' dim' : '') + (l.qty === 0 ? ' gone' : '') + '" data-lid="' + esc(l.lid) + '">' +
-    '<div class="cl-main"><div class="cl-name">' + esc(l.name) + '</div><div class="cl-unit">' + rp(l.price) + '</div>' + note + discTxt +
+    '<div class="cl-main"><div class="cl-name">' + esc(l.name) + '</div><div class="cl-unit">' + rp(l.price) + '</div>' + modTxt + note + discTxt +
     (tags ? '<div class="cl-tags">' + tags + '</div>' : '') +
-    '<div class="cl-links">' + noteBtn + discBtn + '</div></div>' +
+    '<div class="cl-links">' + modBtn + noteBtn + discBtn + '</div></div>' +
     '<div class="qty"><button class="q-btn" type="button" data-act="dec" aria-label="Kurangi">−</button>' +
     '<input class="q-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="' + l.qty + '" aria-label="Jumlah">' +
     '<button class="q-btn' + (saved ? ' locked' : '') + '" type="button" data-act="inc" aria-label="Tambah">+</button></div>' +
@@ -920,9 +1000,9 @@ function posAdd(id) {
   if (!p) return;
   if (!can('pos.sell') && !Pos.ctx) return go('tables');
   // only merge into a NEW line of the same product without note / discount; saved lines are never touched
-  const line = Pos.cart.filter(function (l) { return l.id === id && !l.round && !l.note && !(l.disc && l.disc.value); })[0];
+  const line = Pos.cart.filter(function (l) { return l.id === id && !l.round && !l.note && !(l.disc && l.disc.value) && !(l.mods && l.mods.length); })[0];
   if (line) { if (line.qty < 999) line.qty++; }
-  else Pos.cart.push({ lid: newLid(), id: p.id, name: p.name, price: p.price, qty: 1, disc: null, note: '', grp: p.group || '',
+  else Pos.cart.push({ lid: newLid(), id: p.id, name: p.name, price: p.price, qty: 1, disc: null, note: '', grp: p.group || '', mods: [],
                        round: 0, at: '', by: '', from: '', savedQty: 0 });
   posAfterChange();
   const bar = $('cartBar');
@@ -946,7 +1026,7 @@ function posSetQty(l, q) {
   } else {
     l.qty = q;
   }
-  if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * l.price) l.disc = null;
+  if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * unitOf(l)) l.disc = null;
   posAfterChange();
 }
 
@@ -955,6 +1035,7 @@ function posChange(lid, act) {
   if (!l) return;
   if (act === 'disc') return posItemDiscount(lid);
   if (act === 'note') return posNote(lid);
+  if (act === 'mods') return posMods(lid);
   if (act === 'inc') return posSetQty(l, l.qty + 1);
   if (act === 'dec') return posSetQty(l, l.qty - 1);
   if (act === 'remove') {
@@ -1036,7 +1117,9 @@ async function posComplete() {
   try {
     const receipt = await api('apiCompleteOrder', App.token, {
       clientRef: Pos.ref,
-      items: Pos.ctx ? [] : Pos.cart.map(function (l) { return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '' }; }),
+      items: Pos.ctx ? [] : Pos.cart.map(function (l) {
+        return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '', mods: (l.mods || []).map(function (m) { return m.id; }) };
+      }),
       billDiscount: Pos.billDisc.value ? Pos.billDisc : null,
       applyService: Pos.applyService,
       applyTax: Pos.applyTax,

@@ -345,6 +345,11 @@ function receiptHtml(r) {
   if (r.splitInfo) s += row('Split', r.splitInfo);
   s += '<div class="r-hr"></div>';
   r.items.forEach(function (it) {
+    if (it.modifierOf) {
+      s += row('  + ' + it.name + (it.qty > 1 ? ' ' + it.qty + 'x' : ''), rp(it.total));
+      if (it.discount) s += row('    Diskon', '-' + rp(it.discount));
+      return;
+    }
     s += '<div class="r-item"><div>' + esc(it.name) + '</div>' + (it.note ? '<div class="r-note">* ' + esc(it.note) + '</div>' : '') +
       row(it.qty + ' x ' + rp(it.price), rp(it.total));
     if (it.discount) s += row('  Diskon' + (it.discountInfo && it.discountInfo.indexOf('%') > 0 ? ' ' + it.discountInfo : ''), '-' + rp(it.discount));
@@ -405,6 +410,11 @@ function receiptText(r) {
   if (r.splitInfo) out.push(lr('Split', r.splitInfo));
   out.push(hr);
   r.items.forEach(function (it) {
+    if (it.modifierOf) {
+      out.push(lr('  + ' + it.name + (it.qty > 1 ? ' ' + it.qty + 'x' : ''), rp(it.total)));
+      if (it.discount) out.push(lr('    Diskon', '-' + rp(it.discount)));
+      return;
+    }
     out.push(it.name);
     if (it.note) out.push('  * ' + it.note);
     out.push(lr(it.qty + ' x ' + rp(it.price), rp(it.total)));

@@ -455,6 +455,12 @@ input.q-val:focus { outline: 2px solid var(--brand); outline-offset: -2px; backg
 .upd-new .btn { align-self: flex-start; }
 .good-text { color: var(--ok); }
 
+.cl-mods { font-size: 13px; font-weight: 700; color: #24508f; margin: 2px 0; }
+.mod-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.mod-opt { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); background: #fff; border-radius: 12px;
+  min-height: 48px; padding: 0 14px; font-weight: 600; text-align: left; }
+.mod-opt.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
 @media print {
   @page { margin: 2mm; }
   html, body { background: #fff !important; }

@@ -51,6 +51,7 @@ function normalizeLines_(items) {
     return {
       lid: lid, id: String(i.id || ''), name: String(i.name || ''), qty: Number(i.qty) || 0, price: Number(i.price) || 0,
       disc: i.disc && i.disc.value ? i.disc : null, note: String(i.note || ''), grp: String(i.grp || ''),
+      mods: Array.isArray(i.mods) ? i.mods.map(function (m) { return { id: String(m.id), name: String(m.name), price: Number(m.price) || 0 }; }) : [],
       round: Number(i.round) || 1, at: String(i.at || ''), by: String(i.by || ''), from: String(i.from || '')
     };
   }).filter(function (i) { return i.id && i.qty > 0; });
@@ -197,7 +198,7 @@ function checkReason_(reason) {
 
 function linesValue_(lines) {
   return lines.reduce(function (s, l) {
-    const gross = (Number(l.price) || 0) * l.qty;
+    const gross = lineUnit_(l) * l.qty;
     return s + gross - Math.min(gross, discountAmount_(l.disc, gross));
   }, 0);
 }
@@ -244,7 +245,8 @@ function apiSaveOpenOrder(token, data) {
         }
         if (inc.qty < s.qty) removed.push(Object.assign({}, s, { qty: s.qty - inc.qty }));
         const prod = products[s.id];
-        const line = Object.assign({}, s, { qty: inc.qty, price: prod ? prod.price : s.price, grp: s.grp || (prod ? prod.recipeGroup : 'NONE') });
+        const line = Object.assign({}, s, { qty: inc.qty, price: prod ? prod.price : s.price, grp: s.grp || (prod ? prod.recipeGroup : 'NONE'),
+          mods: (s.mods || []).map(function (m) { const mp = products[m.id]; return { id: m.id, name: m.name, price: mp ? mp.price : m.price }; }) });
         if (canDiscount) line.disc = inc.disc;
         out.push(line);
       });
@@ -253,16 +255,17 @@ function apiSaveOpenOrder(token, data) {
         if (storedByLid[l.lid]) return;
         const prod = products[l.productId];
         if (!prod) throw jayaError_('Ada produk di keranjang yang sudah tidak tersedia (' + l.productId + '). Menu akan dimuat ulang.', 'PRICE_CHANGED');
+        const mods = priceMods_(l.mods, prod, null, products).map(function (m) { return { id: m.id, name: m.name, price: m.price }; });
         const line = { lid: l.lid, id: prod.id, name: prod.name, qty: l.qty, price: prod.price, disc: canDiscount ? l.disc : null,
-                       note: l.note, grp: prod.recipeGroup, round: round, at: fmt_(now, 'HH:mm'), by: user.name, from: '' };
+                       note: l.note, grp: prod.recipeGroup, mods: mods, round: round, at: fmt_(now, 'HH:mm'), by: user.name, from: '' };
         out.push(line);
         added.push(line);
       });
 
       out.forEach(function (l) {
-        if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.price * l.qty) throw new Error('Diskon untuk ' + l.name + ' lebih besar dari harganya.');
+        if (l.disc && l.disc.type === 'AMT' && l.disc.value > lineUnit_(l) * l.qty) throw new Error('Diskon untuk ' + l.name + ' lebih besar dari harganya.');
       });
-      const priced = out.map(function (l) { return { total: l.price * l.qty, disc: l.disc }; });
+      const priced = out.map(function (l) { return { total: lineUnit_(l) * l.qty, disc: l.disc }; });
       const tot = calcTotals_(priced, {}, chargeSettings_());
       checkDiscountAllowed_(user, tot, priced, null);
 

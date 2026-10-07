@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.1.1';
+const APP_VERSION = '3.2.0';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -114,6 +114,7 @@ const SETTINGS_DEFAULTS = [
   ['Costing_Method', 'AVERAGE', 'Cara update harga pokok bahan saat barang datang: AVERAGE (rata-rata tertimbang) atau LAST (harga terakhir)'],
   ['Deduct_Stock_On_Sale', 'TRUE', 'TRUE = setiap penjualan otomatis mengurangi stok bahan sesuai resep'],
   ['Cashier_Void_Days', '1', 'Berapa hari ke belakang kasir boleh void transaksi yang sudah dibayar (1 = hanya hari ini). Admin tidak dibatasi'],
+  ['Modifier_Category', 'Add-ons', 'Kategori produk tambahan (contoh syrup +10rb). Tidak tampil sebagai menu sendiri; dipilih lewat tombol "+ Tambahan" di baris minuman/makanan dengan grup resep yang sama'],
   ['Quick_Notes', 'Pedas,Tidak pedas,Extra pedas,Es pisah,Tanpa es,Less ice,Less sugar,Tanpa bawang,Bungkus', 'Tombol catatan cepat untuk dapur/bar saat input pesanan, dipisah koma'],
   ['Require_Shift', 'TRUE', 'TRUE = pembayaran hanya bisa diterima kalau shift kas sudah dibuka (modal awal sudah dihitung)'],
   ['Max_Cash_In_Drawer', '2000000', 'Kalau uang tunai di laci melebihi angka ini, kasir diingatkan untuk setor. 0 = tanpa pengingat'],
@@ -130,7 +131,7 @@ const SETTING_LABELS = {
   Tax_Label: 'Nama pajak', Tax_On_Takeaway: 'Pajak untuk takeaway', Cash_Rounding: 'Pembulatan tunai (Rp)',
   Cash_Rounding_Mode: 'Cara pembulatan', Show_Product_Images: 'Tampilkan foto produk', Table_Areas: 'Area meja',
   Costing_Method: 'Metode harga pokok', Deduct_Stock_On_Sale: 'Kurangi stok saat terjual',
-  Cashier_Void_Days: 'Batas void kasir (hari)', Quick_Notes: 'Catatan cepat (dapur/bar)', Require_Shift: 'Wajib buka shift',
+  Cashier_Void_Days: 'Batas void kasir (hari)', Quick_Notes: 'Catatan cepat (dapur/bar)', Modifier_Category: 'Kategori tambahan (syrup dll.)', Require_Shift: 'Wajib buka shift',
   Max_Cash_In_Drawer: 'Batas uang di laci (Rp)', Cash_Diff_Tolerance: 'Toleransi selisih kas (Rp)'
 };
 
@@ -241,7 +242,7 @@ const SCHEMA = {
   },
   Transaction_Details: {
     headers: ['Transaction_ID', 'Line_No', 'Product_ID', 'Product_Name', 'Category', 'Quantity', 'Unit_Price', 'Total',
-              'Unit_Cost', 'Date', 'Discount', 'Discount_Info', 'Net_Total', 'Note'],
+              'Unit_Cost', 'Date', 'Discount', 'Discount_Info', 'Net_Total', 'Note', 'Modifier_Of'],
     text: ['Transaction_ID', 'Product_ID', 'Product_Name', 'Category', 'Date', 'Discount_Info', 'Note'],
     money: ['Unit_Price', 'Total', 'Unit_Cost', 'Discount', 'Net_Total']
   },

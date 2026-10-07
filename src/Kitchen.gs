@@ -26,7 +26,8 @@ function createTicket_(info, lines, products) {
         products = products || productMap_();
         grp = products[l.id] ? products[l.id].recipeGroup : 'NONE';
       }
-      return { name: String(l.name), qty: Number(l.qty) || 0, note: String(l.note || ''), st: stationOf_(grp),
+      const extra = modsText_(l.mods);
+      return { name: String(l.name) + (extra ? ' + ' + extra : ''), qty: Number(l.qty) || 0, note: String(l.note || ''), st: stationOf_(grp),
                round: Number(l.round) || 0 };
     });
     const hasFood = items.some(function (i) { return i.st === 'FOOD'; });
