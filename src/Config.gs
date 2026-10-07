@@ -117,7 +117,6 @@ const SETTINGS_DEFAULTS = [
   ['Quick_Notes', 'Pedas,Tidak pedas,Extra pedas,Es pisah,Tanpa es,Less ice,Less sugar,Tanpa bawang,Bungkus', 'Tombol catatan cepat untuk dapur/bar saat input pesanan, dipisah koma'],
   ['Require_Shift', 'TRUE', 'TRUE = pembayaran hanya bisa diterima kalau shift kas sudah dibuka (modal awal sudah dihitung)'],
   ['Max_Cash_In_Drawer', '2000000', 'Kalau uang tunai di laci melebihi angka ini, kasir diingatkan untuk setor. 0 = tanpa pengingat'],
-  ['Update_Source', 'https://raw.githubusercontent.com/odeliasabrina24-byte/jayapos/main/update.json', 'Alamat file update JayaPOS di GitHub. Kosongkan kalau update hanya dari folder Drive "JayaPOS Updates"'],
   ['Cash_Diff_Tolerance', '0', 'Selisih kas (Rp) yang masih dianggap wajar saat tutup shift. Selisih lebih besar ditandai merah di notifikasi']
 ];
 
@@ -132,7 +131,7 @@ const SETTING_LABELS = {
   Cash_Rounding_Mode: 'Cara pembulatan', Show_Product_Images: 'Tampilkan foto produk', Table_Areas: 'Area meja',
   Costing_Method: 'Metode harga pokok', Deduct_Stock_On_Sale: 'Kurangi stok saat terjual',
   Cashier_Void_Days: 'Batas void kasir (hari)', Quick_Notes: 'Catatan cepat (dapur/bar)', Require_Shift: 'Wajib buka shift',
-  Max_Cash_In_Drawer: 'Batas uang di laci (Rp)', Cash_Diff_Tolerance: 'Toleransi selisih kas (Rp)', Update_Source: 'Sumber update (GitHub)'
+  Max_Cash_In_Drawer: 'Batas uang di laci (Rp)', Cash_Diff_Tolerance: 'Toleransi selisih kas (Rp)'
 };
 
 /** Rupiah notes and coins counted when a shift is opened / closed. */

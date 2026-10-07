@@ -30,8 +30,6 @@ function onOpen() {
     .addItem('1. Setup / perbaiki database', 'menuSetup')
     .addItem('2. Set / reset PIN pengguna', 'menuSetPin')
     .addItem('3. Terapkan perubahan sheet Users', 'menuApplyUsers')
-    .addItem('4. Update aplikasi', 'menuUpdate')
-    .addItem('5. Kembalikan ke backup terakhir', 'menuRollback')
     .addSeparator()
     .addItem('Tampilkan link aplikasi', 'menuShowLink')
     .addToUi();

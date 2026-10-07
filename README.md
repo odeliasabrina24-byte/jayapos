@@ -3,9 +3,9 @@
 POS untuk Babi Kopi Jaya Bali — Google Sheets + Google Apps Script.
 
 - `src/` — semua file Apps Script (sama persis dengan yang ada di editor Apps Script).
-- `update.json` — paket update. JayaPOS mengambil file ini saat admin menekan
-  **☰ → Pengaturan → Cek update → Update sekarang**.
-- `tools/build_update.py` — membuat `update.json` dari `src/`.
+- `.github/workflows/deploy.yml` — setiap perubahan di `src/` otomatis dipasang ke
+  Apps Script JayaPOS dan di-deploy (link /exec tetap sama). Butuh secrets
+  `CLASPRC_JSON`, `SCRIPT_ID`, `DEPLOYMENT_ID`.
 
 Repo ini hanya berisi kode aplikasi. Data penjualan, pengguna, PIN dan pengaturan
 tersimpan di Google Sheet milik pemilik usaha, tidak di sini.

@@ -166,76 +166,14 @@ const SETTING_CHOICES = {
   Costing_Method: [['AVERAGE', 'Rata-rata tertimbang'], ['LAST', 'Harga beli terakhir']],
   Receipt_Width_mm: [['58', '58 mm'], ['80', '80 mm']]
 };
-/* ---------- Update aplikasi (admin, works from a phone) ---------- */
-const Upd = { info: null };
-
-function updRender(msg) {
-  const i = Upd.info;
-  let html = '<div class="upd-head"><div><h3>Versi aplikasi</h3><div class="small muted">JayaPOS v' + esc(App.version || '') + '</div></div>' +
-    '<button class="btn small" type="button" data-u="check">Cek update</button></div>';
-  if (msg) html += '<p class="small">' + msg + '</p>';
-  if (i) {
-    if (i.newer) {
-      html += '<div class="upd-new"><b>Versi baru ' + esc(i.latest) + ' tersedia</b>' +
-        (i.notes ? '<div class="small">' + esc(i.notes) + '</div>' : '') +
-        '<div class="small muted">Sumber: ' + esc(i.source) + '</div>' +
-        '<button class="btn primary" type="button" data-u="install">Update sekarang</button></div>';
-    } else {
-      html += '<p class="small">✓ Sudah versi terbaru' + (i.latest ? ' (' + esc(i.latest) + ' di ' + esc(i.source) + ')' : '') + '.</p>';
-    }
-    if (i.backups) html += '<button class="link-btn small" type="button" data-u="rollback">Kembalikan ke versi sebelumnya</button>';
-  }
-  $('updateCard').innerHTML = html;
+/* ---------- Versi aplikasi ---------- */
+function updRender() {
+  $('updateCard').innerHTML = '<div class="upd-head"><div><h3>Versi aplikasi</h3><div class="small muted">JayaPOS v' + esc(App.version || '') +
+    '</div></div></div><p class="small muted">Update dipasang otomatis dari GitHub. Setelah ada versi baru, cukup tutup lalu buka lagi JayaPOS.</p>';
 }
-
-async function updCheck() {
-  updRender('Memeriksa…');
-  try { Upd.info = await api('apiCheckUpdate', App.token); updRender(''); }
-  catch (e) { updRender('<span class="bad-text">' + esc(e.message) + '</span>'); }
-}
-
-async function updInstall() {
-  const i = Upd.info;
-  if (!i || !i.newer) return;
-  if (!confirm('Pasang JayaPOS ' + i.latest + ' sekarang?\n\nJangan dilakukan saat kasir sedang menerima pembayaran. Kode lama otomatis disimpan sebagai backup.')) return;
-  showLoading(true, 'Memasang update… (±30 detik)');
-  try {
-    const r = await api('apiInstallUpdate', App.token, i.latest);
-    Upd.info = null;
-    updRender('<b class="good-text">✓ JayaPOS ' + esc(r.version) + ' terpasang.</b> Tutup JayaPOS di semua HP/tablet lalu buka lagi. ' +
-      'Sheet & kolom baru dibuat otomatis saat pertama dibuka.' + (r.deployments ? '' : ' <span class="bad-text">Link web app tidak ditemukan — hubungi admin.</span>'));
-  } catch (e) {
-    updRender('<span class="bad-text">Update gagal: ' + esc(e.message) + '</span>');
-  } finally {
-    showLoading(false);
-  }
-}
-
-async function updRollback() {
-  if (!confirm('Kembalikan JayaPOS ke versi sebelum update terakhir?')) return;
-  showLoading(true, 'Mengembalikan…');
-  try {
-    const r = await api('apiRollbackUpdate', App.token);
-    Upd.info = null;
-    updRender('<b>✓ Dikembalikan ke JayaPOS ' + esc(r.version) + '.</b> Tutup JayaPOS di semua HP lalu buka lagi.');
-  } catch (e) {
-    updRender('<span class="bad-text">' + esc(e.message) + '</span>');
-  } finally {
-    showLoading(false);
-  }
-}
-
-$('updateCard').addEventListener('click', function (e) {
-  const b = e.target.closest('[data-u]');
-  if (!b) return;
-  if (b.dataset.u === 'check') updCheck();
-  else if (b.dataset.u === 'install') updInstall();
-  else if (b.dataset.u === 'rollback') updRollback();
-});
 
 Views.settings = async function () {
-  updRender('');
-  updCheck();
+  updRender();
   $('settingsList').innerHTML = '<div class="empty">Memuat…</div>';
   try {
     const rows = await api('apiGetSettings', App.token);
