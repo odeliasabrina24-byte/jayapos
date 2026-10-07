@@ -177,6 +177,7 @@ function startSession(s) {
   App.version = s.version;
   $('appVersion').textContent = 'JayaPOS v' + s.version;
   renderNav();
+  renderTabs();
   setUnread(s.unreadNotifications || 0);
   startBell();
   go(defaultView());
@@ -228,6 +229,9 @@ function startBell() {
 /* ================= NAVIGATION ================= */
 function defaultView() {
   const ids = App.nav.filter(function (n) { return n.ready; }).map(function (n) { return n.id; });
+  if (ids.indexOf('home') >= 0) return 'home';                 // cashier, owner, admin
+  if (ids.indexOf('kitchen') >= 0) return 'kitchen';           // chef
+  if (ids.indexOf('bar_orders') >= 0) return 'bar_orders';     // barista
   if (ids.indexOf('pos') >= 0 && can('pos.sell')) return 'pos';
   if (ids.indexOf('tables') >= 0 && can('tables.serve')) return 'tables';
   if (ids.indexOf('dashboard') >= 0) return 'dashboard';
@@ -255,14 +259,12 @@ function go(id) {
   closeDrawer();
   document.querySelectorAll('.view').forEach(function (v) { v.hidden = true; });
   document.querySelectorAll('.nav-item[data-view]').forEach(function (b) { b.classList.toggle('active', b.dataset.view === id); });
-  if (id === 'home') {
+  if (typeof markTab === 'function') markTab(id);
+  if (id === 'home' && !App.nav.some(function (n) { return n.id === 'home'; })) {
     App.view = 'home';
     $('pageTitle').textContent = 'Beranda';
-    $('homeTitle').textContent = 'Halo, ' + App.user.name;
-    $('homeList').innerHTML = App.nav.map(function (n) {
-      return '<li>' + esc(n.label) + ' — Tahap ' + n.phase + '</li>';
-    }).join('') || '<li>Belum ada modul untuk role Anda.</li>';
     $('view-home').hidden = false;
+    homeFallback();
     return;
   }
   const item = App.nav.filter(function (n) { return n.id === id; })[0];
@@ -444,7 +446,9 @@ function showReceipt(r, opts) {
   body.innerHTML = receiptHtml(r);
   $('receiptTextWrap').hidden = true;
   $('receiptVoid').hidden = !r.canVoid;
-  $('receiptDone').textContent = opts.afterSale ? (r.openOrder ? 'Lanjut ke sisa bill' : 'Pesanan Baru') : 'Tutup';
+  App.receiptHome = !!(opts.afterSale && !r.openOrder && App.nav.some(function (n) { return n.id === 'home'; }));
+  $('receiptDone').textContent = opts.afterSale ? (r.openOrder ? 'Lanjut ke sisa bill' : App.receiptHome ? 'Selesai' : 'Pesanan Baru') : 'Tutup';
+  $('receiptNew').hidden = !App.receiptHome;
   $('receiptModal').hidden = false;
 }
 
@@ -795,7 +799,11 @@ function appBind() {
   $('receiptCopy').addEventListener('click', copyReceipt);
   $('receiptVoid').addEventListener('click', voidCurrentReceipt);
   const closeReceipt = function () { $('receiptModal').hidden = true; };
-  $('receiptDone').addEventListener('click', closeReceipt);
+  $('receiptDone').addEventListener('click', function () {
+    closeReceipt();
+    if (App.receiptHome) { App.receiptHome = false; go('home'); }   // after a sale: back to Beranda
+  });
+  $('receiptNew').addEventListener('click', function () { App.receiptHome = false; closeReceipt(); });
   $('receiptCloseX').addEventListener('click', closeReceipt);
 }
 

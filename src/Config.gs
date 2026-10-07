@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.3.0';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -39,10 +39,11 @@ const ROLE_PERMISSIONS = {
   OWNER:      ['dashboard.view', 'history.view_all', 'receipt.view', 'products.view', 'products.view_cost',
                'reports.view', 'purchasing.view', 'inventory.view', 'suppliers.view', 'notifications.view',
                'shift.view', 'cash.confirm'],
-  CASHIER:    ['pos.sell', 'pos.order', 'tables.serve', 'history.view_recent', 'receipt.view', 'pos.void', 'shift.manage'],
+  CASHIER:    ['pos.sell', 'pos.order', 'tables.serve', 'tables.layout', 'history.view_recent', 'receipt.view', 'pos.void',
+               'shift.manage', 'menu.soldout'],
   SERVER:     ['pos.order', 'tables.serve'],
-  CHEF:       ['kitchen.food', 'recipes.food', 'cogs.food', 'stock.food', 'ingredients.food'],
-  BARISTA:    ['kitchen.bar', 'recipes.beverage', 'cogs.beverage', 'stock.beverage', 'ingredients.beverage'],
+  CHEF:       ['kitchen.food', 'menu.soldout', 'recipes.food', 'cogs.food', 'stock.food', 'ingredients.food'],
+  BARISTA:    ['kitchen.bar', 'menu.soldout', 'recipes.beverage', 'cogs.beverage', 'stock.beverage', 'ingredients.beverage'],
   PURCHASING: ['suppliers.manage', 'suppliers.view', 'purchasing.manage', 'purchasing.view', 'ingredients.purchasing']
 };
 
@@ -51,9 +52,11 @@ const ROLE_PERMISSIONS = {
  * ready:false = planned; shown greyed out with its phase, never as a finished page.
  */
 const NAV = [
+  { id: 'home',             section: 'Penjualan',    label: 'Beranda',           perms: ['pos.sell'], ready: true },
   { id: 'pos',              section: 'Penjualan',    label: 'Kasir (POS)',       perms: ['pos.sell', 'pos.order'], ready: true },
   { id: 'tables',           section: 'Penjualan',    label: 'Meja',            perms: ['tables.serve', 'tables.layout'], ready: true },
   { id: 'shift',            section: 'Penjualan',    label: 'Kas & Shift',       perms: ['shift.manage', 'shift.view'], ready: true },
+  { id: 'soldout',          section: 'Penjualan',    label: 'Menu Habis',        perms: ['menu.soldout'], ready: true },
   { id: 'history',          section: 'Penjualan',    label: 'Riwayat Penjualan',     perms: ['history.view_all', 'history.view_recent'], ready: true },
   { id: 'notifications',    section: 'Penjualan',    label: 'Notifikasi',        perms: ['notifications.view'], ready: true },
   { id: 'dashboard',        section: 'Penjualan',    label: 'Dashboard',         perms: ['dashboard.view'], ready: true },
@@ -210,10 +213,10 @@ const SCHEMA = {
   },
   Products: {
     headers: ['Product_ID', 'Product_Name', 'Category', 'Selling_Price', 'Cost', 'Active', 'Recipe_Group', 'Updated_At',
-              'Image_URL'],
-    text: ['Product_ID', 'Product_Name', 'Category', 'Recipe_Group', 'Updated_At', 'Image_URL'],
+              'Image_URL', 'Sold_Out', 'Sold_Out_By', 'Sold_Out_At'],
+    text: ['Product_ID', 'Product_Name', 'Category', 'Recipe_Group', 'Updated_At', 'Image_URL', 'Sold_Out_By', 'Sold_Out_At'],
     money: ['Selling_Price', 'Cost'],
-    lists: { Active: ['TRUE', 'FALSE'], Recipe_Group: RECIPE_GROUPS }
+    lists: { Active: ['TRUE', 'FALSE'], Recipe_Group: RECIPE_GROUPS, Sold_Out: ['TRUE', 'FALSE'] }
   },
   Tables: {
     headers: ['Table_ID', 'Table_Name', 'Area', 'Seats', 'Shape', 'Pos_X', 'Pos_Y', 'Width', 'Height', 'Active', 'Updated_At'],

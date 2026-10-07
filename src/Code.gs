@@ -19,7 +19,7 @@ function doGet() {
 
 /** Used by Index.html to pull in the other HTML files. */
 function include(name) {
-  const allowed = ['Styles', 'AppJs', 'PosJs', 'TablesJs', 'HistoryJs', 'AdminJs', 'InventoryJs', 'PurchasingJs', 'ReportsJs', 'ShiftJs', 'KitchenJs'];
+  const allowed = ['Styles', 'AppJs', 'PosJs', 'TablesJs', 'HistoryJs', 'AdminJs', 'InventoryJs', 'PurchasingJs', 'ReportsJs', 'ShiftJs', 'KitchenJs', 'HomeJs'];
   if (allowed.indexOf(name) < 0) throw new Error('File tidak diizinkan: ' + name);
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }

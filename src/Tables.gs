@@ -255,6 +255,7 @@ function apiSaveOpenOrder(token, data) {
         if (storedByLid[l.lid]) return;
         const prod = products[l.productId];
         if (!prod) throw jayaError_('Ada produk di keranjang yang sudah tidak tersedia (' + l.productId + '). Menu akan dimuat ulang.', 'PRICE_CHANGED');
+        if (prod.soldOut) throw jayaError_(prod.name + ' sedang HABIS. Hapus dari pesanan baru. Menu sudah dimuat ulang.', 'PRICE_CHANGED');
         const mods = priceMods_(l.mods, prod, null, products).map(function (m) { return { id: m.id, name: m.name, price: m.price }; });
         const line = { lid: l.lid, id: prod.id, name: prod.name, qty: l.qty, price: prod.price, disc: canDiscount ? l.disc : null,
                        note: l.note, grp: prod.recipeGroup, mods: mods, round: round, at: fmt_(now, 'HH:mm'), by: user.name, from: '' };

@@ -51,7 +51,9 @@ function getActiveProducts_() {
       cost: isFinite(cost) ? cost : 0,
       active: isTrue_(r.Active),
       recipeGroup: String(r.Recipe_Group || '').trim().toUpperCase() || 'NONE',
-      image: normalizeImageUrl_(r.Image_URL)
+      image: normalizeImageUrl_(r.Image_URL),
+      row: r._row,
+      soldOut: isTrue_(r.Sold_Out), soldOutBy: String(r.Sold_Out_By || ''), soldOutAt: cellText_(r.Sold_Out_At)
     };
   }).filter(function (p) { return p.active && p.id && p.name && isFinite(p.price) && p.price >= 0; });
 }
@@ -202,6 +204,7 @@ function priceMods_(ids, p, oldMods, products) {
     const m = products[id];
     if (m) {
       if (String(m.category).toLowerCase() !== cat) throw new Error(m.name + ' bukan produk tambahan.');
+      if (m.soldOut && !oldMods) throw jayaError_(m.name + ' sedang HABIS. Menu sudah dimuat ulang.', 'PRICE_CHANGED');
       if (p && m.recipeGroup !== p.recipeGroup) throw new Error(m.name + ' tidak bisa ditambahkan ke ' + p.name + '.');
       return { id: m.id, name: m.name, price: m.price, cost: m.cost, category: m.category, group: m.recipeGroup };
     }
@@ -222,6 +225,7 @@ function priceLines_(parsed, fallback, products) {
     const p = products[l.productId];
     const old = fallback && l.lid ? fallback[l.lid] : null;
     if (!p && !old) throw jayaError_('Ada produk di keranjang yang sudah tidak tersedia (' + l.productId + '). Menu akan dimuat ulang.', 'PRICE_CHANGED');
+    if (p && p.soldOut && !old) throw jayaError_(p.name + ' sedang HABIS. Hapus dari keranjang. Menu sudah dimuat ulang.', 'PRICE_CHANGED');
     const price = p ? p.price : Number(old.price) || 0;
     const mods = priceMods_(l.mods, p, old ? old.mods : null, products);
     const total = lineUnit_({ price: price, mods: mods }) * l.qty;
@@ -257,7 +261,7 @@ function apiGetPosData(token) {
     try { shiftOpen = !!currentShift_(); } catch (e) { shiftOpen = false; }
     return {
       products: getActiveProducts_().map(function (p) {
-        return { id: p.id, name: p.name, category: p.category, price: p.price, image: p.image, group: p.recipeGroup }; // cost is NOT sent
+        return { id: p.id, name: p.name, category: p.category, price: p.price, image: p.image, group: p.recipeGroup, soldOut: p.soldOut }; // cost is NOT sent
       }),
       categories: categoryOrder_(),
       allowDiscount: (isTrue_(s.Allow_Discount) || isAdmin) && canPay,
@@ -646,4 +650,71 @@ function buildReceipt_(txId, settings) {
     taxLabel: settings.Tax_Label || 'PB1'
   };
   return t;
+}
+
+// ---------------- Menu habis (sold out) ----------------
+
+/** Every active product (menu + add-ons) with its sold-out state. */
+function apiGetSoldOut(token) {
+  return run_(function () {
+    requirePerm_(token, 'menu.soldout');
+    const order = categoryOrder_();
+    const list = getActiveProducts_().map(function (p) {
+      return { id: p.id, name: p.name, category: p.category, soldOut: p.soldOut, by: p.soldOutBy, at: p.soldOutAt.slice(0, 16) };
+    });
+    const cats = [];
+    list.forEach(function (p) { if (cats.indexOf(p.category) < 0) cats.push(p.category); });
+    cats.sort(function (a, b) {
+      const ia = order.indexOf(a), ib = order.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    return { categories: cats, products: list, count: list.filter(function (p) { return p.soldOut; }).length };
+  });
+}
+
+/** Marks a product sold out (soldOut = true) or available again. It stays sold out until someone switches it back. */
+function apiSetSoldOut(token, productId, soldOut) {
+  return run_(function () {
+    const user = requirePerm_(token, 'menu.soldout');
+    return withLock_(function () {
+      const p = getActiveProducts_().filter(function (x) { return x.id === String(productId || ''); })[0];
+      if (!p) throw new Error('Produk tidak ditemukan. Muat ulang.');
+      const on = soldOut === true;
+      if (p.soldOut !== on) {
+        updateRow_('Products', p.row, { Sold_Out: on, Sold_Out_By: on ? user.name : '', Sold_Out_At: on ? nowStamp_() : '' });
+        audit_(user, on ? 'SOLD_OUT' : 'SOLD_OUT_CLEAR', 'Product', p.id, { name: p.name });
+      }
+      return { id: p.id, soldOut: on, by: on ? user.name : '', at: on ? nowStamp_().slice(0, 16) : '' };
+    });
+  });
+}
+
+/** Numbers for the cashier home screen. */
+function apiGetHome(token) {
+  return run_(function () {
+    const user = requirePerm_(token, ['pos.sell', 'pos.order']);
+    const s = getSettingsMap_();
+    let shift = null;
+    try { const c = currentShift_(); if (c) shift = { id: c.id, openedAt: c.openedAt.slice(11, 16), openedBy: c.openedBy }; } catch (e) { shift = null; }
+    let tables = 0, busy = 0, openAmount = 0;
+    try {
+      const f = floorData_(user);
+      tables = f.tables.length;
+      Object.keys(f.open).forEach(function (k) { busy++; openAmount += f.open[k].subtotal; });
+    } catch (e) { /* no tables */ }
+    let soldOut = 0;
+    try { soldOut = getActiveProducts_().filter(function (p) { return p.soldOut; }).length; } catch (e) { soldOut = 0; }
+    let kitchen = 0;
+    try {
+      const today = todayStr_();
+      readRecentRows_('Kitchen_Tickets', 300).forEach(function (r) {
+        if (dateText_(r.Date) === today && (String(r.Food_Status) === 'NEW' || String(r.Bar_Status) === 'NEW')) kitchen++;
+      });
+    } catch (e) { kitchen = 0; }
+    return {
+      business: s.Business_Name || '', user: user.name, shiftRequired: isTrue_(s.Require_Shift), shift: shift,
+      canManageShift: hasPerm_(user.role, 'shift.manage'), tables: tables, busy: busy, openAmount: openAmount,
+      soldOut: soldOut, kitchen: kitchen
+    };
+  });
 }

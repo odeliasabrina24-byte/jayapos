@@ -102,6 +102,19 @@ function drawerFull_(shift, settings) {
   return shiftNumbers_(shift).expected > max;
 }
 
+/**
+ * The cash count from the phone: either per note/coin (data.count) or just the total (data.total).
+ * Returns { total, json }.
+ */
+function readCash_(data) {
+  if (data && data.mode === 'TOTAL') {
+    const t = Number(data.total);
+    if (!Number.isInteger(t) || t < 0 || t > 1000000000) throw new Error('Isi total uang di laci (angka Rupiah).');
+    return { total: t, json: JSON.stringify({ total: t }) };
+  }
+  return readCount_(data && data.count);
+}
+
 /** Validates a count { "100000": 3, "50000": 2, ... } and returns its total. */
 function readCount_(count) {
   if (!count || typeof count !== 'object') throw new Error('Isi hitungan uang di laci.');
@@ -169,7 +182,7 @@ function apiOpenShift(token, data) {
   return run_(function () {
     const user = requirePerm_(token, 'shift.manage');
     data = data || {};
-    const c = readCount_(data.count);
+    const c = readCash_(data);
     const note = cleanText_(data.note, 150);
     return withLock_(function () {
       const cur = currentShift_();
@@ -266,7 +279,7 @@ function apiCloseShift(token, data) {
   return run_(function () {
     const user = requirePerm_(token, 'shift.manage');
     data = data || {};
-    const c = readCount_(data.count);
+    const c = readCash_(data);
     const leave = Number(data.leave);
     if (!Number.isInteger(leave) || leave < 0) throw new Error('Isi modal yang ditinggal di laci untuk shift berikutnya (boleh 0).');
     if (leave > c.total) throw new Error('Modal yang ditinggal lebih besar dari uang yang dihitung.');

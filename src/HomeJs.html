@@ -1,0 +1,203 @@
+<script>
+/* ================= HomeJs: Beranda (cashier home), bottom tab bar, Menu Habis ================= */
+
+const Home = { data: null, prompted: false };
+
+App.resetHooks.push(function () { Home.data = null; Home.prompted = false; });
+
+const TAB_ICONS = {
+  home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
+  tables: '<rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  pos: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  history: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  more: '<path d="M4 7h16M4 12h16M4 17h16"/>'
+};
+
+function tabIcon(k) {
+  return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + TAB_ICONS[k] + '</svg>';
+}
+
+function hasNav(id) { return (App.nav || []).some(function (n) { return n.id === id && n.ready; }); }
+
+/** Bottom tab bar for people who sell (cashier, owner, admin). Everything else stays in ☰. */
+function renderTabs() {
+  const bar = $('tabBar');
+  const on = hasNav('home');
+  document.body.classList.toggle('has-tabs', on);
+  bar.hidden = !on;
+  if (!on) { bar.innerHTML = ''; return; }
+  const tabs = [['home', 'Beranda'], ['tables', 'Meja'], ['pos', 'Pesan'], ['history', 'Riwayat']]
+    .filter(function (t) { return hasNav(t[0]); });
+  bar.innerHTML = tabs.map(function (t) {
+    return '<button type="button" class="tab" data-tab="' + t[0] + '">' + tabIcon(t[0]) + '<span>' + t[1] + '</span></button>';
+  }).join('') + '<button type="button" class="tab" data-tab="more">' + tabIcon('more') + '<span>Lainnya</span></button>';
+  markTab(App.view);
+}
+
+function markTab(id) {
+  document.querySelectorAll('#tabBar .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === id); });
+}
+
+/* ---------- Beranda ---------- */
+Views.home = function () {
+  if (!hasNav('home')) return homeFallback();
+  if (Home.data) homeRender();
+  homeLoad();
+};
+
+/** Roles that only have planned modules. */
+function homeFallback() {
+  $('homeBody').innerHTML = '<div class="card planned-card"><h2>Halo, ' + esc(App.user.name) + '</h2>' +
+    '<p>Belum ada modul untuk role Anda.</p></div>';
+}
+
+async function homeLoad() {
+  if (!Home.data) $('homeBody').innerHTML = '<div class="empty">Memuat…</div>';
+  try {
+    Home.data = await api('apiGetHome', App.token);
+    if (App.view !== 'home') return;
+    homeRender();
+    const d = Home.data;
+    if (!Home.prompted && d.shiftRequired && !d.shift && d.canManageShift) {
+      Home.prompted = true;            // asks once after login; the cashier can still close it and look around
+      shiftOpenPrompt('Shift belum dibuka. Hitung uang di laci dulu sebelum menerima tamu.');
+    }
+  } catch (e) {
+    if (!Home.data) $('homeBody').innerHTML = '<div class="empty">' + esc(e.message) +
+      '<br><br><button class="btn" type="button" data-home="reload">Coba lagi</button></div>';
+  }
+}
+
+function homeRender() {
+  const d = Home.data;
+  const needShift = d.shiftRequired && !d.shift;
+  let shiftHtml;
+  if (needShift) {
+    shiftHtml = '<div class="card home-shift warn"><div><b>Shift belum dibuka</b><div class="small">' +
+      (d.canManageShift ? 'Hitung uang di laci dulu. Pesanan boleh dicatat, tapi pembayaran baru bisa setelah shift dibuka.'
+        : 'Minta kasir membuka shift sebelum menerima pembayaran.') + '</div></div>' +
+      (d.canManageShift ? '<button class="btn primary" type="button" data-home="openShift">Hitung kas &amp; buka shift</button>' : '') + '</div>';
+  } else if (d.shift) {
+    shiftHtml = '<button class="home-shift ok" type="button" data-home="shift"><span class="dot"></span><span>Shift buka sejak <b>' + esc(d.shift.openedAt) +
+      '</b> · ' + esc(d.shift.openedBy) + '</span><span class="home-go">Kas &amp; Shift ›</span></button>';
+  } else {
+    shiftHtml = '';
+  }
+  const big = [];
+  if (hasNav('tables')) big.push('<button class="home-big dine" type="button" data-home="dine"><span class="hb-title">Dine-in</span><span class="hb-sub">Pilih meja</span></button>');
+  if (hasNav('pos')) big.push('<button class="home-big take" type="button" data-home="take"><span class="hb-title">Take away</span><span class="hb-sub">Pesanan baru</span></button>');
+  const tiles = [];
+  if (hasNav('tables')) tiles.push(homeTile('tables', 'Meja terisi', d.busy + ' / ' + d.tables, d.busy ? rp(d.openAmount) + ' belum dibayar' : 'Semua kosong'));
+  if (hasNav('soldout')) tiles.push(homeTile('soldout', 'Menu habis', String(d.soldOut), d.soldOut ? 'Ketuk untuk lihat / nyalakan' : 'Semua menu tersedia', d.soldOut ? 'warn' : ''));
+  if (hasNav('history')) tiles.push(homeTile('history', 'Riwayat penjualan', '›', 'Transaksi & struk'));
+  if (hasNav('shift')) tiles.push(homeTile('shift', 'Kas & Shift', '›', 'Kas masuk/keluar, setor, tutup shift'));
+  if (d.kitchen) tiles.push('<div class="home-tile"><span class="ht-label">Di dapur / bar</span><span class="ht-val">' + d.kitchen +
+    '</span><span class="ht-sub">pesanan belum selesai</span></div>');
+  if (hasNav('dashboard')) tiles.push(homeTile('dashboard', 'Dashboard', '›', 'Penjualan hari ini'));
+  $('homeBody').innerHTML =
+    '<div class="home-hello"><h2>Halo, ' + esc(App.user.name) + '</h2><div class="muted small">' + esc(d.business) + '</div></div>' +
+    shiftHtml +
+    (big.length ? '<div class="home-bigs">' + big.join('') + '</div>' : '') +
+    '<div class="home-tiles">' + tiles.join('') + '</div>';
+}
+
+function homeTile(view, label, val, sub, cls) {
+  return '<button class="home-tile' + (cls ? ' ' + cls : '') + '" type="button" data-go="' + view + '"><span class="ht-label">' + esc(label) +
+    '</span><span class="ht-val">' + esc(val) + '</span><span class="ht-sub">' + esc(sub) + '</span></button>';
+}
+
+/** Takeaway from Beranda: leave any table bill, then an empty / waiting takeaway order. */
+function homeTakeaway() {
+  if (Pos.ctx) {
+    if (posIsDirty() && !confirm('Perubahan di ' + Pos.ctx.tableName + ' belum disimpan. Tetap keluar tanpa menyimpan?')) return;
+    posLeaveTable();
+  }
+  go('pos');
+}
+
+/* ---------- Menu Habis ---------- */
+const SoldOut = { data: null, q: '' };
+
+Views.soldout = function () { soLoad(); };
+
+async function soLoad() {
+  try {
+    SoldOut.data = await api('apiGetSoldOut', App.token);
+    soRender();
+  } catch (e) {
+    Mod.render('<p class="error">' + esc(e.message) + '</p>');
+  }
+}
+
+function soRow(p) {
+  return '<label class="so-row' + (p.soldOut ? ' is-out' : '') + '"><span class="so-main"><span class="so-name">' + esc(p.name) + '</span>' +
+    (p.soldOut ? '<span class="so-sub">Habis sejak ' + esc(stampLabel(p.at)) + (p.by ? ' · ' + esc(p.by) : '') + '</span>' : '') + '</span>' +
+    '<span class="so-state">' + (p.soldOut ? 'HABIS' : 'Tersedia') + '</span>' +
+    '<input type="checkbox" class="switch" data-so="' + esc(p.id) + '"' + (p.soldOut ? '' : ' checked') + '></label>';
+}
+
+function soRender() {
+  const d = SoldOut.data;
+  const out = d.products.filter(function (p) { return p.soldOut; });
+  Mod.render(
+    '<p class="small muted">Matikan menu yang habis. Menu itu tidak bisa dipesan di kasir sampai ada yang menyalakannya lagi (tidak kembali otomatis besok).</p>' +
+    (out.length ? '<h3 class="sec-title">Sedang habis (' + out.length + ')</h3><div class="so-list">' + out.map(soRow).join('') + '</div>' : '') +
+    '<input class="search so-search" id="soSearch" type="search" placeholder="Cari menu…" value="' + esc(SoldOut.q) + '" autocomplete="off">' +
+    '<div id="soAll"></div>');
+  soRenderAll();
+  Mod.on({
+    _input: function (e) { if (e.target.id === 'soSearch') { SoldOut.q = e.target.value; soRenderAll(); } },
+    _change: function (e) { if (e.target.dataset.so) soToggle(e.target); }
+  });
+}
+
+function soRenderAll() {
+  const d = SoldOut.data;
+  const q = SoldOut.q.trim().toLowerCase();
+  const html = d.categories.map(function (c) {
+    const list = d.products.filter(function (p) { return p.category === c && (!q || p.name.toLowerCase().indexOf(q) >= 0); });
+    return list.length ? '<h3 class="sec-title">' + esc(c) + '</h3><div class="so-list">' + list.map(soRow).join('') + '</div>' : '';
+  }).join('');
+  $('soAll').innerHTML = html || '<div class="empty">Menu tidak ditemukan.</div>';
+}
+
+async function soToggle(input) {
+  const id = input.dataset.so;
+  const out = !input.checked;
+  const p = SoldOut.data.products.filter(function (x) { return x.id === id; })[0];
+  input.disabled = true;
+  try {
+    const r = await api('apiSetSoldOut', App.token, id, out);
+    if (p) { p.soldOut = r.soldOut; p.by = r.by; p.at = r.at; }
+    if (typeof Pos !== 'undefined' && Pos.byId && Pos.byId[id]) Pos.byId[id].soldOut = r.soldOut;
+    if (Home.data) Home.data.soldOut = SoldOut.data.products.filter(function (x) { return x.soldOut; }).length;
+    toast((p ? p.name : 'Menu') + (r.soldOut ? ' ditandai HABIS' : ' tersedia lagi'), r.soldOut ? 'warn' : '');
+    soRender();
+  } catch (e) {
+    input.checked = !input.checked;
+    input.disabled = false;
+    toast(e.message, 'err');
+  }
+}
+
+(function homeBind() {
+  $('homeBody').addEventListener('click', function (e) {
+    const g = e.target.closest('[data-go]');
+    if (g) return go(g.dataset.go);
+    const b = e.target.closest('[data-home]');
+    if (!b) return;
+    const a = b.dataset.home;
+    if (a === 'openShift') shiftOpenPrompt();
+    else if (a === 'shift') go('shift');
+    else if (a === 'dine') go('tables');
+    else if (a === 'take') homeTakeaway();
+    else if (a === 'reload') homeLoad();
+  });
+  $('tabBar').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-tab]');
+    if (!b) return;
+    if (b.dataset.tab === 'more') return openDrawer();
+    go(b.dataset.tab);
+  });
+})();
+</script>

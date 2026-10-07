@@ -110,8 +110,12 @@ async function posLoad() {
 
 /** Quietly re-checks whether the cash shift is open (after coming back from "Kas & Shift"). */
 async function posCheckShift() {
-  if (!Pos.canPay || !Pos.shift.required) return;
-  try { const d = await api('apiGetPosData', App.token); Pos.shift = d.shift; posRenderCart(); } catch (e) {}
+  try {
+    const d = await api('apiGetPosData', App.token);
+    Pos.shift = d.shift || Pos.shift;
+    posSetProducts(d);          // also brings in "HABIS" changes
+    posRenderAll();
+  } catch (e) {}
 }
 
 function posSyncInputs() {
@@ -656,8 +660,9 @@ function posMods(lid) {
   (l.mods || []).forEach(function (m) { chosen[m.id] = true; });
   const html = '<p class="small muted">Pilih tambahan untuk ' + esc(l.name) + '. Harga tambahan masuk ke baris ini dan muncul di layar bar/dapur.</p>' +
     '<div class="mod-list">' + list.map(function (m) {
-      return '<button type="button" class="mod-opt' + (chosen[m.id] ? ' active' : '') + '" data-m="' + esc(m.id) + '"><span>' + esc(m.name) +
-        '</span><b>+' + rp(m.price) + '</b></button>';
+      const off = m.soldOut && !chosen[m.id];
+      return '<button type="button" class="mod-opt' + (chosen[m.id] ? ' active' : '') + (off ? ' sold-out' : '') + '" data-m="' + esc(m.id) + '"' + (off ? ' disabled' : '') +
+        '><span>' + esc(m.name) + (off ? ' <i class="habis-tag">HABIS</i>' : '') + '</span><b>+' + rp(m.price) + '</b></button>';
     }).join('') + '</div>' +
     (l.qty > 1 ? '<label class="field"><span>Untuk berapa porsi?</span><input id="modQty" type="number" inputmode="numeric" min="1" max="' + l.qty + '" value="' + l.qty + '">' +
       '<span class="help">Isi lebih kecil dari ' + l.qty + ' kalau tambahannya hanya untuk sebagian (contoh: 1 dari 2 pakai vanilla). Baris akan dipisah.</span></label>' : '') +
@@ -672,7 +677,7 @@ function posMods(lid) {
       paint();
       body.onclick = function (e) {
         const b = e.target.closest('[data-m]');
-        if (!b) return;
+        if (!b || b.disabled) return;
         chosen[b.dataset.m] = !chosen[b.dataset.m];
         b.classList.toggle('active', !!chosen[b.dataset.m]);
         paint();
@@ -831,7 +836,8 @@ function posRenderProducts() {
   $('productGrid').innerHTML = list.length ? list.map(function (p) {
     const img = Pos.showImages && p.image
       ? '<span class="p-img"><img src="' + esc(p.image) + '" alt="" loading="lazy" onerror="this.parentNode.remove()"></span>' : '';
-    return '<button class="product' + (img ? ' has-img' : '') + '" type="button" data-id="' + esc(p.id) + '">' + img +
+    return '<button class="product' + (img ? ' has-img' : '') + (p.soldOut ? ' sold-out' : '') + '" type="button" data-id="' + esc(p.id) + '">' + img +
+      (p.soldOut ? '<span class="p-habis">HABIS</span>' : '') +
       '<span class="p-name">' + esc(p.name) + '</span>' +
       '<span class="p-price">' + rp(p.price) + '</span>' + (inCart[p.id] ? '<span class="p-qty">' + (Pos.ctx ? '+' : '') + inCart[p.id] + '</span>' : '') + '</button>';
   }).join('') : '<div class="empty" style="grid-column:1/-1">Produk tidak ditemukan.</div>';
@@ -999,6 +1005,7 @@ function posAdd(id) {
   const p = Pos.byId[id];
   if (!p) return;
   if (!can('pos.sell') && !Pos.ctx) return go('tables');
+  if (p.soldOut) return toast(p.name + ' sedang HABIS' + (can('menu.soldout') ? '. Nyalakan lagi di menu "Menu Habis".' : '.'), 'warn');
   // only merge into a NEW line of the same product without note / discount; saved lines are never touched
   const line = Pos.cart.filter(function (l) { return l.id === id && !l.round && !l.note && !(l.disc && l.disc.value) && !(l.mods && l.mods.length); })[0];
   if (line) { if (line.qty < 999) line.qty++; }
@@ -1065,7 +1072,7 @@ function posValidate() {
   if (Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet) return 'Diskon bill lebih besar dari subtotal.';
   const lim = checkDiscLimit(t);
   if (lim) return lim;
-  if (Pos.shift.required && !Pos.shift.open) return 'Shift kas belum dibuka. Buka dulu di ☰ → Kas & Shift (hitung modal awal).';
+  if (Pos.shift.required && !Pos.shift.open) return 'Shift kas belum dibuka. Tekan "Buka shift" lalu hitung uang di laci.';
   if (Pos.split) {
     for (let i = 0; i < t.parts.length; i++) {
       const part = Pos.split.parts[i];
@@ -1252,7 +1259,7 @@ function posBind() {
     Pos.split.parts[Number(row.dataset.i)].cash = parseMoney(e.target.value);
     posAfterChange();
   });
-  $('shiftWarnBtn').addEventListener('click', function () { $('cartPanel').classList.remove('open'); go('shift'); });
+  $('shiftWarnBtn').addEventListener('click', function () { $('cartPanel').classList.remove('open'); shiftOpenPrompt(); });
   $('serviceToggle').addEventListener('change', function (e) {
     Pos.applyService = e.target.checked;
     posAfterChange();

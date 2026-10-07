@@ -37,7 +37,7 @@ function shiftRender() {
     html += '<div class="card shift-card closed"><h3>Shift belum dibuka</h3>' +
       (d.lastClosed ? '<p class="small">Shift terakhir ditutup ' + esc(stampLabel(d.lastClosed.closedAt)) + ' oleh ' + esc(d.lastClosed.closedBy) +
         '. Modal yang ditinggal di laci: <b>' + rp(d.lastClosed.leftForNext) + '</b>.</p>' : '<p class="small">Belum pernah ada shift.</p>') +
-      '<p class="small muted">Hitung semua uang di laci per pecahan sebelum menerima pembayaran pertama. ' +
+      '<p class="small muted">Hitung semua uang di laci (total atau per pecahan) sebelum menerima pembayaran pertama. ' +
       (d.lastClosed ? 'Kalau hasilnya beda dari modal yang ditinggal, owner & admin langsung diberi tahu.' : '') + '</p>' +
       (d.canManage ? '<button class="btn primary big" type="button" data-act="open">Buka shift · hitung modal</button>' :
         '<p class="muted small">Kasir yang membuka shift.</p>') + '</div>';
@@ -103,24 +103,33 @@ function shiftRender() {
   });
 }
 
-/** Denomination count form for opening / closing. */
-function shiftCount(kind) {
+/** Count form for opening / closing: total only (default) or per denomination. */
+function shiftCount(kind, opts) {
+  opts = opts || {};
   const d = Sft.data;
   const isClose = kind === 'close';
-  const html = '<p class="small">' + (isClose
-      ? 'Hitung SEMUA uang tunai di laci sekarang, per pecahan. Jangan menebak — tulis apa adanya. Sistem akan membandingkan dengan catatan penjualan.'
-      : 'Hitung semua uang di laci per pecahan (isi jumlah lembar / keping).') + '</p>' +
+  let mode = 'TOTAL';
+  try { if (store.get('jaya_count_mode') === 'DENOM') mode = 'DENOM'; } catch (e) {}
+  const html = (opts.intro ? '<p class="note-line">' + esc(opts.intro) + '</p>' : '') +
+    '<p class="small">' + (isClose
+      ? 'Hitung SEMUA uang tunai di laci sekarang. Jangan menebak — tulis apa adanya. Sistem akan membandingkan dengan catatan penjualan.'
+      : 'Hitung semua uang di laci sebelum menerima pembayaran pertama.') + '</p>' +
     (isClose && d.openBills ? '<p class="note-line">Masih ada ' + d.openBills + ' meja dengan bill terbuka. Boleh tetap tutup shift; bill itu nanti dibayar di shift berikutnya.</p>' : '') +
-    '<div class="denoms">' + d.denoms.map(function (n) {
-      return '<label class="denom"><span>Rp ' + denomLabel(n) + (n <= 1000 && n !== 1000 ? ' <i>koin</i>' : '') + '</span>' +
+    '<div class="seg wide cnt-mode" role="tablist">' +
+      '<button type="button" class="seg-btn" data-mode="TOTAL">Total uang</button>' +
+      '<button type="button" class="seg-btn" data-mode="DENOM">Per pecahan</button></div>' +
+    '<div id="cntTotalBox"><label class="field"><span>Total uang di laci (Rp)</span>' +
+      '<input id="cntTotalIn" class="money-input big-money" inputmode="numeric" autocomplete="off" placeholder="0"></label></div>' +
+    '<div id="cntDenomBox"><div class="denoms">' + d.denoms.map(function (n) {
+      return '<label class="denom"><span>Rp ' + denomLabel(n) + (n < 1000 ? ' <i>koin</i>' : '') + '</span>' +
         '<input type="number" inputmode="numeric" min="0" step="1" data-d="' + n + '" placeholder="0"><b data-sub="' + n + '">Rp 0</b></label>';
     }).join('') + '</div>' +
-    '<div class="sum-row total"><span>Total dihitung</span><span id="cntTotal">Rp 0</span></div>' +
+    '<div class="sum-row total"><span>Total dihitung</span><span id="cntTotal">Rp 0</span></div></div>' +
     (isClose ? '<label class="field"><span>Modal ditinggal di laci untuk shift berikutnya</span><input id="cntLeave" class="money-input" inputmode="numeric" autocomplete="off" value="' +
       fmtNum(Math.min(500000, d.shift ? d.shift.opening : 0)) + '"><span class="help">Sisanya disetor ke owner/admin (menunggu konfirmasi).</span></label>' +
       '<div class="sum-row"><span>Setor</span><b id="cntSetor">Rp 0</b></div>' : '') +
     '<label class="field"><span>Catatan (opsional)</span><input id="cntNote" maxlength="150" autocomplete="off"></label>';
-  const total = function () {
+  const denomTotal = function () {
     let t = 0;
     document.querySelectorAll('.denoms input[data-d]').forEach(function (i) {
       const n = Math.max(0, parseInt(i.value, 10) || 0);
@@ -129,43 +138,82 @@ function shiftCount(kind) {
     });
     return t;
   };
+  const total = function () { return mode === 'TOTAL' ? parseMoney($('cntTotalIn').value) : denomTotal(); };
   const paint = function () {
     const t = total();
-    $('cntTotal').textContent = rp(t);
+    if (mode === 'DENOM') $('cntTotal').textContent = rp(t);
     if (isClose) $('cntSetor').textContent = rp(Math.max(0, t - parseMoney($('cntLeave').value)));
+  };
+  const setMode = function (m) {
+    mode = m;
+    try { store.set('jaya_count_mode', m); } catch (e) {}
+    document.querySelectorAll('.cnt-mode .seg-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.mode === m); });
+    $('cntTotalBox').hidden = m !== 'TOTAL';
+    $('cntDenomBox').hidden = m !== 'DENOM';
+    paint();
+    const f = m === 'TOTAL' ? $('cntTotalIn') : document.querySelector('.denoms input[data-d]');
+    if (f) setTimeout(function () { f.focus(); }, 30);
   };
   openCustom({
     title: isClose ? 'Tutup shift · hitung uang di laci' : 'Buka shift · hitung modal awal', html: html,
     submitLabel: isClose ? 'Tutup shift' : 'Buka shift',
-    onOpen: function (body) { paint(); body.oninput = paint; },
+    onOpen: function (body) {
+      body.oninput = paint;
+      body.querySelectorAll('.cnt-mode .seg-btn').forEach(function (b) { b.onclick = function () { setMode(b.dataset.mode); }; });
+      setMode(mode);
+    },
     onSubmit: async function () {
-      const count = {};
-      document.querySelectorAll('.denoms input[data-d]').forEach(function (i) {
-        const n = parseInt(i.value, 10) || 0;
-        if (n < 0) throw new Error('Jumlah tidak boleh minus.');
-        if (n) count[i.dataset.d] = n;
-      });
+      const payload = { note: $('cntNote').value.trim() };
+      if (mode === 'TOTAL') {
+        if ($('cntTotalIn').value.trim() === '') throw new Error('Isi total uang di laci.');
+        payload.mode = 'TOTAL';
+        payload.total = parseMoney($('cntTotalIn').value);
+      } else {
+        const count = {};
+        document.querySelectorAll('.denoms input[data-d]').forEach(function (i) {
+          const n = parseInt(i.value, 10) || 0;
+          if (n < 0) throw new Error('Jumlah tidak boleh minus.');
+          if (n) count[i.dataset.d] = n;
+        });
+        payload.count = count;
+      }
       const t = total();
-      const note = $('cntNote').value.trim();
       if (isClose) {
         const leave = parseMoney($('cntLeave').value);
         if (leave > t) throw new Error('Modal yang ditinggal lebih besar dari uang yang dihitung.');
         if (!confirm('Tutup shift dengan uang dihitung ' + rp(t) + '? Setelah ditutup tidak bisa diubah.')) throw new Error('Belum ditutup. Cek lagi hitungannya lalu tekan Tutup shift.');
-        const r = await api('apiCloseShift', App.token, { count: count, leave: leave, note: note });
+        payload.leave = leave;
+        const r = await api('apiCloseShift', App.token, payload);
         Sft.data = r;
-        shiftRender();
+        if (App.view === 'shift') shiftRender();
         if (typeof Pos !== 'undefined') Pos.shift.open = false;
+        homeShiftChanged();
         setTimeout(function () { shiftResult(r.closed); }, 60);   // after this form has closed
       } else {
-        if (!t && !confirm('Modal awal Rp 0 (laci kosong)?')) throw new Error('Isi hitungan uang di laci.');
-        Sft.data = await api('apiOpenShift', App.token, { count: count, note: note });
+        if (!t && !confirm('Modal awal Rp 0 (laci kosong)?')) throw new Error('Isi jumlah uang di laci.');
+        Sft.data = await api('apiOpenShift', App.token, payload);
         if (typeof Pos !== 'undefined') Pos.shift.open = true;
-        shiftRender();
+        if (App.view === 'shift') shiftRender();
+        homeShiftChanged();
         toast(Sft.data.shift.openingDiff ? 'Shift dibuka. Modal awal beda dari shift sebelumnya — owner & admin diberi tahu.' : 'Shift dibuka. Selamat bekerja!',
           Sft.data.shift.openingDiff ? 'warn' : '');
       }
     }
   });
+}
+
+/** Opens the "buka shift" count straight away (used on login and from Beranda). */
+async function shiftOpenPrompt(intro) {
+  try {
+    if (!Sft.data || Sft.data.shift) Sft.data = await api('apiGetShift', App.token);
+    if (Sft.data.shift || !Sft.data.canManage) return homeShiftChanged();
+    shiftCount('open', { intro: intro });
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function homeShiftChanged() {
+  if (App.view === 'home' && typeof homeLoad === 'function') homeLoad();
+  if (App.view === 'pos' && typeof posRenderCart === 'function' && Pos.loaded) posRenderCart();
 }
 
 function shiftResult(c) {
@@ -227,6 +275,7 @@ async function shiftDetail(id) {
   try {
     const s = await api('apiGetShiftDetail', App.token, id);
     const countTable = function (c) {
+      if (c && c.total !== undefined) return 'Total ' + rp(c.total) + ' (tidak per pecahan)';
       const keys = Object.keys(c || {}).sort(function (a, b) { return b - a; });
       return keys.length ? keys.map(function (k) { return 'Rp ' + denomLabel(Number(k)) + ' × ' + c[k]; }).join(' · ') : '-';
     };

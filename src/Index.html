@@ -250,17 +250,12 @@
         </div>
       </section>
 
-      <!-- ===== HOME (roles with no ready modules yet) ===== -->
+      <!-- ===== BERANDA (cashier home) ===== -->
       <section class="view" id="view-home" hidden>
-        <div class="page">
-          <div class="card planned-card">
-            <h2 id="homeTitle"></h2>
-            <p>Modul untuk role Anda direncanakan di tahap berikutnya dan <b>belum dibuat</b>:</p>
-            <ul id="homeList"></ul>
-          </div>
-        </div>
+        <div class="page home" id="homeBody"></div>
       </section>
     </main>
+    <nav class="tabbar" id="tabBar" hidden></nav>
   </div>
 
   <!-- ================= RECEIPT MODAL ================= -->
@@ -280,6 +275,7 @@
         <button class="btn danger-ghost" id="receiptVoid" type="button" hidden>Void</button>
         <button class="btn" id="receiptPrint" type="button">Print</button>
         <button class="btn" id="receiptCopy" type="button">Salin teks</button>
+        <button class="btn" id="receiptNew" type="button" hidden>Pesanan baru</button>
         <button class="btn primary" id="receiptDone" type="button">Pesanan Baru</button>
       </div>
     </div>
@@ -314,5 +310,6 @@
   <?!= include('ReportsJs'); ?>
   <?!= include('ShiftJs'); ?>
   <?!= include('KitchenJs'); ?>
+  <?!= include('HomeJs'); ?>
 </body>
 </html>
