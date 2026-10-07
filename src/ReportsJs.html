@@ -1,0 +1,130 @@
+<script>
+/* ================= ReportsJs: laporan owner (Tahap 4) ================= */
+
+const Rep = { type: null, last: {} };
+const REPORT_NAMES = { sales: 'Penjualan', cogs: 'HPP', profit: 'Laba', purchasing: 'Pembelian', inventory: 'Stok' };
+const GROUP_NAMES = { FOOD: 'Makanan', BEVERAGE: 'Minuman', SHARED: 'Bersama' };
+
+Views.sales_reports = function () { reportView('sales'); };
+Views.cogs_reports = function () { reportView('cogs'); };
+Views.profit_reports = function () { reportView('profit'); };
+Views.purchasing_reports = function () { reportView('purchasing'); };
+Views.inventory_reports = function () { reportView('inventory'); };
+
+function kpi(label, value, cls) {
+  return '<div class="kpi"><div class="kpi-label">' + esc(label) + '</div><div class="kpi-value' + (cls ? ' ' + cls : '') + '">' + value + '</div></div>';
+}
+function card(title, inner) { return '<div class="card rep-card"><h3>' + esc(title) + '</h3>' + inner + '</div>'; }
+function pctText(p) { return String(p).replace('.', ',') + '%'; }
+
+async function reportView(type, filter) {
+  Rep.type = type;
+  if (filter) Rep.last[type] = filter;
+  const f = Rep.last[type] || { range: 'month' };
+  Mod.render(rangeBarHtml('rp') + '<div class="list-summary" id="rpRange">Memuat…</div><div id="rpBody"></div>');
+  rangeFilter('rpF', 'rpC', function (nf) { reportView(type, nf); }, f);
+  Mod.on({});
+  try {
+    const d = await api('apiGetReport', App.token, type, f);
+    if (Rep.type !== type) return;
+    $('rpRange').textContent = 'Laporan ' + REPORT_NAMES[type] + ' · ' + rangeLabel(d.from, d.to);
+    $('rpBody').innerHTML = REPORTS[type](d);
+  } catch (e) {
+    $('rpBody').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
+    $('rpRange').textContent = '';
+  }
+}
+
+const REPORTS = {
+  sales: function (d) {
+    return '<div class="kpis">' + kpi('Penjualan bersih', rp(d.net)) + kpi('Transaksi', fmtNum(d.count)) + kpi('Rata-rata bill', rp(d.average)) + '</div>' +
+      '<div class="list-summary">Kotor ' + rp(d.gross) + ' − diskon item ' + rp(d.itemDiscount) + ' − diskon bill ' + rp(d.billDiscount) +
+      ' = bersih ' + rp(d.net) + ' · service ' + rp(d.service) + ' · pajak ' + rp(d.tax) +
+      (d.rounding ? ' · pembulatan ' + rpSigned(d.rounding) : '') + ' · total diterima ' + rp(d.collected) + '</div>' +
+      (d.stay ? '<div class="list-summary">⏱ Rata-rata lama makan di tempat: <b>' + fmtDur(d.stay.avg) + '</b> (terlama ' + fmtDur(d.stay.max) +
+        ', ' + d.stay.bills + ' meja) · dihitung dari meja dibuka sampai dibayar</div>' : '') +
+      (d.voidCount ? '<p class="note-line">⚠ ' + d.voidCount + ' transaksi di-void (' + rp(d.voidTotal) + '), tidak dihitung di angka di atas.</p>' : '') +
+      (d.byDay.length > 1 ? card('Penjualan bersih per hari', colChart(d.byDay, 'net', null, ['Penjualan bersih'])) : '') +
+      '<div class="grid-2">' +
+      card('Per kategori', barList(d.categories.map(function (c) { return { label: c.name, value: c.revenue, note: c.qty + ' terjual' }; }))) +
+      card('Per metode bayar', barList(d.byPayment.map(function (m) { return { label: m.label, value: m.total, note: m.count + 'x' }; }))) +
+      card('Makan di tempat vs takeaway', barList(d.byType.map(function (t) { return { label: t.type, value: t.net, note: t.count + ' bill' + (t.guests ? ', ' + t.guests + ' tamu' : '') }; }))) +
+      card('Per jam', barList(d.byHour.map(function (h) { return { label: h.hour + ':00', value: h.net, note: h.count + ' bill' }; }))) +
+      '</div>' +
+      card('Produk', dataTable([
+        { label: 'Produk', key: 'name' }, { label: 'Kategori', key: 'category' },
+        { label: 'Jumlah', fn: function (p) { return fmtNum(p.qty); }, num: true },
+        { label: 'Pendapatan', fn: function (p) { return rp(p.revenue); }, num: true }
+      ], d.products)) +
+      (d.voids.length ? card('Transaksi void', dataTable([
+        { label: 'No.', key: 'id' }, { label: 'Tanggal', key: 'date' }, { label: 'Kasir', key: 'cashier' },
+        { label: 'Di-void oleh', key: 'by' }, { label: 'Alasan', key: 'reason' },
+        { label: 'Total', fn: function (x) { return rp(x.total); }, num: true }
+      ], d.voids)) : '') +
+      '<p class="muted small">Pendapatan produk = setelah diskon item, sebelum diskon bill. Service dan pajak tidak dihitung sebagai pendapatan.</p>';
+  },
+
+  cogs: function (d) {
+    return '<div class="kpis">' + kpi('Penjualan bersih', rp(d.net)) + kpi('HPP', rp(d.cogs)) + kpi('HPP %', pctTag(d.cogsPct)) + '</div>' +
+      (d.missing.length ? '<p class="note-line">⚠ Belum ada HPP untuk: ' + d.missing.map(esc).join(', ') + '. Buat resep atau isi HPP manual di Produk, kalau tidak HPP-nya dihitung Rp 0.</p>' : '') +
+      card('HPP per kategori', dataTable([
+        { label: 'Kategori', key: 'name' }, { label: 'Pendapatan', fn: function (c) { return rp(c.revenue); }, num: true },
+        { label: 'HPP', fn: function (c) { return rp(c.cogs); }, num: true }, { label: 'HPP %', fn: function (c) { return pctTag(c.costPct); }, num: true }
+      ], d.categories)) +
+      card('HPP per produk', dataTable([
+        { label: 'Produk', key: 'name' }, { label: 'Jumlah', fn: function (p) { return fmtNum(p.qty); }, num: true },
+        { label: 'HPP / porsi', fn: function (p) { return rp(p.unitCost); }, num: true },
+        { label: 'HPP', fn: function (p) { return rp(p.cogs); }, num: true }, { label: 'HPP %', fn: function (p) { return pctTag(p.costPct); }, num: true }
+      ], d.products)) +
+      '<p class="muted small">HPP memakai harga pokok saat transaksi terjadi (dari resep, atau HPP manual di Produk).</p>';
+  },
+
+  profit: function (d) {
+    return '<div class="kpis">' + kpi('Penjualan bersih', rp(d.net)) + kpi('Laba kotor', rp(d.gp), d.gp < 0 ? 'bad-text' : '') + kpi('Margin', pctText(d.margin)) + '</div>' +
+      '<div class="list-summary">Penjualan bersih ' + rp(d.net) + ' − HPP ' + rp(d.cogs) + ' = laba kotor ' + rp(d.gp) + ' (total diskon: ' + rp(d.discount) + ')</div>' +
+      (d.byDay.length > 1 ? card('Penjualan bersih & laba kotor per hari', colChart(d.byDay, 'net', 'gp', ['Penjualan bersih', 'Laba kotor'])) : '') +
+      card('Laba per kategori', dataTable([
+        { label: 'Kategori', key: 'name' }, { label: 'Pendapatan', fn: function (c) { return rp(c.revenue); }, num: true },
+        { label: 'HPP', fn: function (c) { return rp(c.cogs); }, num: true }, { label: 'Laba kotor', fn: function (c) { return rp(c.gp); }, num: true },
+        { label: 'Margin', fn: function (c) { return pctText(c.margin); }, num: true }
+      ], d.categories)) +
+      card('Laba per produk (terbesar dulu)', dataTable([
+        { label: 'Produk', key: 'name' }, { label: 'Jumlah', fn: function (p) { return fmtNum(p.qty); }, num: true },
+        { label: 'Pendapatan', fn: function (p) { return rp(p.revenue); }, num: true }, { label: 'HPP', fn: function (p) { return rp(p.cogs); }, num: true },
+        { label: 'Laba kotor', fn: function (p) { return rp(p.gp); }, num: true },
+        { label: 'Margin', fn: function (p) { return pctText(p.margin); }, num: true }
+      ], d.products)) +
+      '<p class="muted small">Pendapatan produk = setelah diskon item, sebelum diskon bill. Service charge dan pajak tidak dihitung sebagai pendapatan.</p>';
+  },
+
+  purchasing: function (d) {
+    return '<div class="kpis">' + kpi('Total pembelian', rp(d.total)) + kpi('Supplier', d.bySupplier.length) + kpi('PO terbuka', d.openOrders + (d.openValue ? ' · ' + rp(d.openValue) : '')) + '</div>' +
+      card('Per supplier', barList(d.bySupplier.map(function (s) { return { label: s.name, value: s.total, note: s.receipts + ' pembelian' }; }))) +
+      card('Per bahan', dataTable([
+        { label: 'Bahan', key: 'name' }, { label: 'Jumlah', fn: function (i) { return humanQty(i.baseQty, i.unit); }, num: true },
+        { label: 'Harga rata-rata', fn: function (i) { return rp(i.avgPerPurchaseUnit) + ' / ' + esc(i.purchaseUnit); }, num: true },
+        { label: 'Total', fn: function (i) { return rp(i.total); }, num: true }
+      ], d.byIngredient)) +
+      card('Barang yang diterima', dataTable([
+        { label: 'Tanggal', key: 'date' }, { label: 'PO', key: 'po' }, { label: 'Supplier', key: 'supplier' },
+        { label: 'Item', key: 'lines', num: true }, { label: 'Total', fn: function (x) { return rp(x.total); }, num: true }
+      ], d.receipts));
+  },
+
+  inventory: function (d) {
+    return '<div class="kpis">' + kpi('Nilai stok sekarang', rp(d.totalValue)) + kpi('Terpakai penjualan', rp(d.usedCost)) + kpi('Waste', rp(d.wasteCost), d.wasteCost ? 'bad-text' : '') + '</div>' +
+      (d.lowCount ? '<p class="note-line">⚠ ' + d.lowCount + ' bahan di bawah stok minimum.</p>' : '') +
+      card('Nilai stok per grup', barList(d.byGroup.map(function (g) { return { label: GROUP_NAMES[g.name] || g.name, value: g.value, note: g.items + ' bahan' }; }))) +
+      card('Bahan (stok sekarang · pergerakan di periode ini)', dataTable([
+        { label: 'Bahan', fn: function (x) { return esc(x.name) + (x.low ? ' <span class="pill bad">Menipis</span>' : '') + (x.negative ? ' <span class="pill warn">Di bawah 0</span>' : ''); } },
+        { label: 'Stok', fn: function (x) { return humanQty(x.stock, x.unit); }, num: true },
+        { label: 'Nilai', fn: function (x) { return rp(x.value); }, num: true },
+        { label: 'Dibeli', fn: function (x) { return humanQty(x.purchased, x.unit); }, num: true },
+        { label: 'Terpakai', fn: function (x) { return humanQty(x.used, x.unit); }, num: true },
+        { label: 'Waste', fn: function (x) { return humanQty(x.wasted, x.unit); }, num: true },
+        { label: 'Opname ±', fn: function (x) { return humanQty(x.adjusted, x.unit); }, num: true }
+      ], d.rows, 'Belum ada bahan.')) +
+      '<p class="muted small">Stok dan nilai = kondisi sekarang; Dibeli / Terpakai / Waste / Opname = selama periode yang dipilih. "Terpakai" = kebutuhan resep untuk penjualan (transaksi void sudah dikembalikan).</p>';
+  }
+};
+</script>

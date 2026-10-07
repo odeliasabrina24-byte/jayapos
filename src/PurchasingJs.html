@@ -1,0 +1,267 @@
+<script>
+/* ================= PurchasingJs: suppliers, purchase orders, receiving, history (Phase 3) ================= */
+
+const Pur = { sup: null, data: null, mode: 'open', last: null, supplierId: '' };
+
+Views.suppliers = function () { suppliersView(); };
+Views.purchase_orders = function () { poView('open'); };
+Views.goods_receiving = function () { poView('receiving'); };
+Views.purchase_history = function () { poView('history'); };
+
+/* ---------------- Suppliers ---------------- */
+async function suppliersView() {
+  try {
+    Pur.sup = await api('apiGetSuppliers', App.token);
+    const d = Pur.sup;
+    let html = '<div class="toolbar"><div class="muted small">Total = barang yang sudah diterima (harga beli asli).</div>' +
+      (d.canEdit ? '<button class="btn primary" type="button" data-act="add">+ Tambah supplier</button>' : '') + '</div><div class="table-list">';
+    html += d.suppliers.length ? d.suppliers.map(function (s) {
+      return '<div class="row-item clickable' + (s.active ? '' : ' inactive') + '" data-act="open" data-id="' + esc(s.id) + '">' +
+        '<div class="row-main"><div class="row-title">' + esc(s.name) + '</div><div class="row-sub">' +
+        [s.contact, s.phone].filter(String).map(esc).join(' · ') + (s.lastPurchase ? ' · terakhir ' + esc(s.lastPurchase) : '') + '</div></div>' +
+        '<div class="row-right">' + rp(s.purchased) + '<div class="row-sub">' + s.receipts + ' pembelian</div></div></div>';
+    }).join('') : '<div class="empty">Belum ada supplier.</div>';
+    Mod.render(html + '</div>');
+    Mod.on({
+      add: function () { supplierForm(null); },
+      open: function (el) {
+        const s = Pur.sup.suppliers.filter(function (x) { return x.id === el.dataset.id; })[0];
+        if (Pur.sup.canEdit) supplierForm(s);
+        else { Pur.supplierId = s.id; go('purchase_history'); }
+      }
+    });
+  } catch (e) {
+    Mod.render('<p class="error">' + esc(e.message) + '</p>');
+  }
+}
+
+function supplierForm(s) {
+  openForm({
+    title: s ? s.name : 'Tambah supplier',
+    fields: [
+      { name: 'name', label: 'Nama supplier', value: s ? s.name : '' },
+      { name: 'contact', label: 'Nama kontak', value: s ? s.contact : '' },
+      { name: 'phone', label: 'Telepon / WhatsApp', value: s ? s.phone : '' },
+      { name: 'address', label: 'Alamat', value: s ? s.address : '' },
+      { name: 'notes', label: 'Catatan', value: s ? s.notes : '', help: 'contoh: kirim Senin & Kamis, bayar tunai' },
+      { name: 'active', label: 'Aktif', type: 'checkbox', value: s ? s.active : true }
+    ],
+    onSubmit: async function (v) {
+      v.id = s ? s.id : '';
+      await api('apiSaveSupplier', App.token, v);
+      toast('Supplier tersimpan');
+      suppliersView();
+    }
+  });
+}
+
+/* ---------------- Purchase orders ---------------- */
+async function poView(mode, filter) {
+  Pur.mode = mode;
+  try {
+    if (filter) Pur.last = filter;
+    const f = mode === 'history' ? Object.assign({ mode: mode, supplierId: Pur.supplierId }, Pur.last || { range: 'month' }) : { mode: mode };
+    Pur.data = await api('apiGetPurchaseOrders', App.token, f);
+    poRender();
+  } catch (e) {
+    Mod.render('<p class="error">' + esc(e.message) + '</p>');
+  }
+}
+
+function poRender() {
+  const d = Pur.data;
+  const mode = Pur.mode;
+  let html = '';
+  if (mode === 'history') {
+    html += rangeBarHtml('ph') + '<div class="toolbar"><select id="phSupplier" class="search"><option value="">Semua supplier</option>' +
+      d.suppliers.map(function (s) { return '<option value="' + esc(s.id) + '"' + (s.id === Pur.supplierId ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') +
+      '</select></div><div class="list-summary">' + d.orders.length + ' PO · ' + rp(d.total) + ' diterima · ' + rangeLabel(d.from, d.to) + '</div>';
+  } else {
+    html += '<div class="toolbar"><div class="muted small">' + (mode === 'open'
+      ? 'PO yang barangnya belum diterima semua. Ketuk untuk ubah, terima barang, atau batalkan.'
+      : 'Ketuk PO saat barang datang, lalu isi jumlah yang datang dan harga aslinya.') + '</div>' +
+      (d.canManage ? '<div class="tools-right">' + (mode === 'open' ? '<button class="btn primary small" type="button" data-act="new">+ PO baru</button>' : '') +
+        '<button class="btn small" type="button" data-act="direct">+ Beli langsung</button></div>' : '') + '</div>';
+  }
+  html += '<div class="table-list">' + (d.orders.length ? d.orders.map(function (p) {
+    const items = p.lines.map(function (l) { return l.name; }).slice(0, 3).join(', ') + (p.lines.length > 3 ? '…' : '');
+    return '<div class="row-item clickable" data-act="open" data-id="' + esc(p.id) + '"><div class="row-main"><div class="row-title">' + esc(p.supplierName) + ' ' + statusPill(p.status) +
+      (p.type === 'DIRECT' ? ' <span class="tag">Langsung</span>' : '') + '</div>' +
+      '<div class="row-sub">' + esc(p.id) + ' · ' + esc(p.receivedDate ? dateLabel(p.receivedDate) : p.dateLabel) + ' · ' + esc(items) + '</div></div>' +
+      '<div class="row-right">' + rp(p.receivedTotal || p.total) + '<div class="row-sub">' + (p.receivedTotal ? 'diterima' : 'dipesan') + '</div></div></div>';
+  }).join('') : '<div class="empty">' + (mode === 'history' ? 'Tidak ada pembelian di periode ini.' : 'Tidak ada yang menunggu.') + '</div>') + '</div>';
+  Mod.render(html);
+  if (mode === 'history') rangeFilter('phF', 'phC', function (f) { poView('history', f); }, Pur.last || { range: 'month' });
+  Mod.on({
+    new: function () { poEditor(null, false); },
+    direct: function () { poEditor(null, true); },
+    open: function (el) { poDetail(Pur.data.orders.filter(function (p) { return p.id === el.dataset.id; })[0]); },
+    _change: function (e) {
+      if (e.target.id === 'phSupplier') { Pur.supplierId = e.target.value; poView('history'); }
+    }
+  });
+}
+
+function poDetail(p) {
+  const d = Pur.data;
+  const received = p.lines.some(function (l) { return l.qtyReceived > 0; });
+  let html = '<div class="row-sub">' + esc(p.id) + ' · dipesan ' + esc(p.dateLabel) + ' oleh ' + esc(p.createdBy) + '</div>' +
+    '<div class="sum-row"><span>Supplier</span><b>' + esc(p.supplierName) + '</b></div>' +
+    '<div class="sum-row"><span>Status</span>' + statusPill(p.status) + '</div>' +
+    (p.invoiceNo ? '<div class="sum-row"><span>Invoice</span><span>' + esc(p.invoiceNo) + '</span></div>' : '') +
+    dataTable([
+      { label: 'Item', key: 'name' },
+      { label: 'Dipesan', fn: function (l) { return numFmt(l.qty) + ' ' + esc(l.unit); }, num: true },
+      { label: 'Harga', fn: function (l) { return rp(l.unitPrice); }, num: true },
+      { label: 'Diterima', fn: function (l) { return numFmt(l.qtyReceived) + (l.receivedUnitPrice ? ' @ ' + rp(l.receivedUnitPrice) : ''); }, num: true }
+    ], p.lines) +
+    '<div class="sum-row"><span>Total dipesan</span><b>' + rp(p.total) + '</b></div>' +
+    '<div class="sum-row total"><span>Total diterima</span><span>' + rp(p.receivedTotal) + '</span></div>' +
+    (p.notes ? '<p class="small"><b>Catatan:</b> ' + esc(p.notes) + '</p>' : '');
+  const open = ['DRAFT', 'ORDERED', 'PARTIAL'].indexOf(p.status) >= 0;
+  if (d.canManage && open) {
+    html += '<div class="modal-actions">' +
+      (!received ? '<button class="btn" type="button" data-po="edit">Ubah</button><button class="btn" type="button" data-po="cancel">Batalkan PO</button>' : '') +
+      '<button class="btn primary" type="button" data-po="receive">Terima barang</button></div>';
+  }
+  openCustom({
+    title: 'Purchase order (PO)', html: html, readOnly: true, onSubmit: async function () {},
+    onOpen: function (body, close) {
+      body.onclick = async function (e) {
+        const b = e.target.closest('[data-po]');
+        if (!b) return;
+        if (b.dataset.po === 'edit') { close(); poEditor(p, false); }
+        else if (b.dataset.po === 'receive') { close(); receiveEditor(p); }
+        else if (b.dataset.po === 'cancel') {
+          if (!confirm('Batalkan ' + p.id + '?')) return;
+          try { await api('apiCancelPurchaseOrder', App.token, p.id); close(); toast('PO dibatalkan'); poView(Pur.mode); }
+          catch (err) { formError(err.message); }
+        }
+      };
+    }
+  });
+}
+
+function poLineHtml(l, ings) {
+  const ing = ings.filter(function (i) { return i.id === l.ingredientId; })[0];
+  return '<div class="line-row po" data-line>' +
+    '<select class="ln-ing"><option value="">Pilih bahan…</option>' + ings.map(function (i) {
+      return '<option value="' + esc(i.id) + '"' + (i.id === l.ingredientId ? ' selected' : '') + '>' + esc(i.name) + '</option>';
+    }).join('') + '</select>' +
+    '<input class="ln-qty" type="number" inputmode="decimal" step="any" min="0" placeholder="Jml" value="' + (l.qty || '') + '">' +
+    '<span class="ln-unit-label">' + (ing ? esc(ing.purchaseUnit) : '') + '</span>' +
+    '<input class="ln-price money-input" inputmode="numeric" placeholder="Harga / satuan" value="' + (l.unitPrice ? fmtNum(l.unitPrice) : '') + '">' +
+    '<span class="ln-cost">–</span><button class="cl-remove" type="button" data-rm aria-label="Hapus">✕</button></div>';
+}
+
+function poEditor(p, direct) {
+  const d = Pur.data;
+  if (!d.suppliers.length) return toast('Tambahkan supplier dulu (menu Supplier).', 'warn');
+  if (!d.ingredients.length) return toast('Tambahkan bahan dulu (menu Bahan Baku).', 'warn');
+  const lines = p ? p.lines.map(function (l) { return { ingredientId: l.ingredientId, qty: l.qty, unitPrice: l.unitPrice }; }) : [{}];
+  const html = '<label class="field"><span>Supplier</span><select id="poSup"><option value="">Pilih supplier…</option>' +
+    d.suppliers.map(function (s) { return '<option value="' + esc(s.id) + '"' + (p && p.supplierId === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') + '</select></label>' +
+    '<label class="field"><span>' + (direct ? 'Tanggal beli' : 'Tanggal PO') + '</span><input id="poDate" type="date" value="' + (p ? p.date : todayISO()) + '"></label>' +
+    (direct ? '<label class="field"><span>Nomor nota / invoice (opsional)</span><input id="poInv" type="text"></label>'
+            : '<label class="field"><span>Status</span><select id="poStatus"><option value="ORDERED"' + (!p || p.status === 'ORDERED' ? ' selected' : '') + '>Dipesan (sudah dikirim ke supplier)</option>' +
+              '<option value="DRAFT"' + (p && p.status === 'DRAFT' ? ' selected' : '') + '>Draft (belum dikirim)</option></select></label>') +
+    '<div class="field"><span>Barang · jumlah dalam satuan beli · harga per satuan beli</span><div id="poLines">' +
+    lines.map(function (l) { return poLineHtml(l, d.ingredients); }).join('') + '</div>' +
+    '<button class="btn small" type="button" id="poAdd">+ Tambah barang</button></div>' +
+    '<div class="sum-row total"><span>Total</span><span id="poTotal">Rp 0</span></div>' +
+    '<label class="field"><span>Catatan (opsional)</span><input id="poNotes" type="text" value="' + esc(p ? p.notes : '') + '"></label>' +
+    (direct ? '<p class="muted small">Stok dan harga pokok bahan langsung diperbarui.</p>' : '');
+  const recalc = function () {
+    let total = 0;
+    document.querySelectorAll('#poLines [data-line]').forEach(function (row) {
+      const t = (Number(row.querySelector('.ln-qty').value) || 0) * parseMoney(row.querySelector('.ln-price').value);
+      total += t;
+      row.querySelector('.ln-cost').textContent = t ? rp(Math.round(t)) : '–';
+    });
+    $('poTotal').textContent = rp(Math.round(total));
+  };
+  openCustom({
+    title: direct ? 'Beli langsung' : (p ? 'Ubah ' + p.id : 'PO baru'),
+    html: html,
+    submitLabel: direct ? 'Simpan & masukkan stok' : 'Simpan PO',
+    onOpen: function (body) {
+      recalc();
+      body.oninput = recalc;
+      body.onchange = function (e) {
+        if (e.target.classList.contains('ln-ing')) {
+          const ing = d.ingredients.filter(function (i) { return i.id === e.target.value; })[0];
+          const row = e.target.closest('[data-line]');
+          row.querySelector('.ln-unit-label').textContent = ing ? ing.purchaseUnit : '';
+          const price = row.querySelector('.ln-price');
+          if (ing && !price.value) price.value = fmtNum(ing.lastPrice || ing.costPerPurchaseUnit || 0) === '0' ? '' : fmtNum(ing.lastPrice || ing.costPerPurchaseUnit);
+          if (ing && ing.supplierId && !$('poSup').value) $('poSup').value = ing.supplierId;
+        }
+        recalc();
+      };
+      body.onclick = function (e) {
+        if (e.target.id === 'poAdd') $('poLines').insertAdjacentHTML('beforeend', poLineHtml({}, d.ingredients));
+        else if (e.target.closest('[data-rm]')) { e.target.closest('[data-line]').remove(); recalc(); }
+      };
+    },
+    onSubmit: async function () {
+      const out = [];
+      document.querySelectorAll('#poLines [data-line]').forEach(function (row) {
+        const id = row.querySelector('.ln-ing').value;
+        const qty = row.querySelector('.ln-qty').value;
+        if (!id && !qty) return;
+        out.push({ ingredientId: id, qty: Number(qty), unitPrice: parseMoney(row.querySelector('.ln-price').value) });
+      });
+      const base = { supplierId: $('poSup').value, date: $('poDate').value, notes: $('poNotes').value, lines: out };
+      if (direct) {
+        base.invoiceNo = $('poInv').value;
+        const r = await api('apiDirectPurchase', App.token, base);
+        toast('Pembelian tersimpan · ' + rp(r.received) + ' masuk stok');
+      } else {
+        base.poId = p ? p.id : '';
+        base.status = $('poStatus').value;
+        const r = await api('apiSavePurchaseOrder', App.token, base);
+        toast('Tersimpan ' + r.id);
+      }
+      poView(Pur.mode === 'history' ? 'open' : Pur.mode);
+    }
+  });
+}
+
+function receiveEditor(p) {
+  const html = '<div class="row-sub">' + esc(p.id) + ' · ' + esc(p.supplierName) + '</div>' +
+    '<label class="field"><span>Nomor invoice / surat jalan (opsional)</span><input id="rvInv" type="text"></label>' +
+    '<label class="field"><span>Tanggal diterima</span><input id="rvDate" type="date" value="' + todayISO() + '"></label>' +
+    '<div class="field"><span>Yang datang · jumlah · harga asli per satuan</span>' + p.lines.map(function (l) {
+      const remaining = Math.max(0, Math.round((l.qty - l.qtyReceived) * 10000) / 10000);
+      return '<div class="line-row rv" data-line data-no="' + l.lineNo + '"><div class="rv-name"><b>' + esc(l.name) + '</b><div class="row-sub">dipesan ' +
+        numFmt(l.qty) + ' ' + esc(l.unit) + (l.qtyReceived ? ' · sudah ' + numFmt(l.qtyReceived) : '') + '</div></div>' +
+        '<input class="ln-qty" type="number" inputmode="decimal" step="any" min="0" value="' + remaining + '">' +
+        '<input class="ln-price money-input" inputmode="numeric" value="' + fmtNum(l.receivedUnitPrice || l.unitPrice) + '">' +
+        '<span class="ln-cost">–</span></div>';
+    }).join('') + '</div>' +
+    '<div class="sum-row total"><span>Diterima sekarang</span><span id="rvTotal">Rp 0</span></div>' +
+    '<label class="switch-label small"><input type="checkbox" id="rvClose"> Tutup PO ini (tidak ada barang lagi yang akan datang)</label>';
+  const recalc = function () {
+    let total = 0;
+    document.querySelectorAll('#formBody [data-line]').forEach(function (row) {
+      const t = (Number(row.querySelector('.ln-qty').value) || 0) * parseMoney(row.querySelector('.ln-price').value);
+      total += t;
+      row.querySelector('.ln-cost').textContent = rp(Math.round(t));
+    });
+    $('rvTotal').textContent = rp(Math.round(total));
+  };
+  openCustom({
+    title: 'Terima barang', html: html, submitLabel: 'Masukkan ke stok',
+    onOpen: function (body) { recalc(); body.oninput = recalc; },
+    onSubmit: async function () {
+      const lines = [];
+      document.querySelectorAll('#formBody [data-line]').forEach(function (row) {
+        lines.push({ lineNo: Number(row.dataset.no), qty: Number(row.querySelector('.ln-qty').value) || 0, unitPrice: parseMoney(row.querySelector('.ln-price').value) });
+      });
+      const r = await api('apiReceivePurchaseOrder', App.token, { poId: p.id, invoiceNo: $('rvInv').value, date: $('rvDate').value, close: $('rvClose').checked, lines: lines });
+      toast('Diterima · ' + rp(r.received) + ' · ' + statusLabel(r.status).toLowerCase());
+      poView(Pur.mode === 'history' ? 'open' : Pur.mode);
+    }
+  });
+}
+</script>

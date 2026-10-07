@@ -1,0 +1,146 @@
+<script>
+/* ================= HistoryJs: Riwayat Penjualan, Dashboard, Notifikasi ================= */
+
+const Hist = { filter: null };
+const Dash = { filter: null };
+const Notif = { unreadOnly: true, data: null };
+
+Views.history = function () {
+  if (!Hist.filter) Hist.filter = rangeFilter('histFilters', 'histCustom', histLoad);
+  histLoad(Hist.filter.get());
+};
+
+async function histLoad(f) {
+  $('histList').innerHTML = '<div class="empty">Memuat…</div>';
+  $('histSummary').textContent = '';
+  try {
+    const d = await api('apiGetSalesHistory', App.token, f);
+    let s = d.count + ' transaksi';
+    if (d.total !== null) s += ' · ' + rp(d.total) + ' (tanpa void)';
+    s += ' · ' + rangeLabel(d.from, d.to);
+    if (d.limited) s += ' (role Anda hanya bisa melihat beberapa hari terakhir)';
+    $('histSummary').textContent = s;
+    $('histList').innerHTML = d.rows.length ? d.rows.map(function (t) {
+      return '<button class="tx' + (t.status === 'VOID' ? ' tx-void' : '') + '" type="button" data-id="' + esc(t.id) + '">' +
+        '<div class="tx-top"><b>' + esc(t.id) + '</b><span class="tx-total">' + rp(t.total) + '</span></div>' +
+        '<div class="tx-meta"><span>' + esc(t.dateLabel) + ' · ' + esc(t.time) + '</span><span>' + esc(t.cashier) + '</span>' +
+        (t.tableName ? '<span class="tag table-tag">' + esc(t.tableName) + (t.pax ? ' · ' + t.pax + ' pax' : '') + '</span>' : '<span class="tag">Takeaway</span>') +
+        (t.guestName ? '<span class="tag">' + esc(t.guestName) + '</span>' : '') +
+        (t.durationMin !== null && t.durationMin !== undefined ? '<span class="tag" title="Lama makan: dari meja dibuka sampai dibayar">⏱ ' + fmtDur(t.durationMin) + '</span>' : '') +
+        (t.splitInfo ? '<span class="tag">' + esc(t.splitInfo) + '</span>' : '') +
+        '<span class="tag">' + esc(t.methodLabel) + '</span>' + statusPill(t.status) + '</div>' +
+        '</button>';
+    }).join('') + (d.truncated ? '<p class="muted small">Menampilkan 500 terbaru. Pilih periode yang lebih pendek untuk melihat yang lebih lama.</p>' : '')
+      : '<div class="empty">Tidak ada transaksi di periode ini.</div>';
+  } catch (e) {
+    $('histList').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
+  }
+}
+
+async function openReceipt(id) {
+  showLoading(true, 'Memuat struk…');
+  try {
+    showReceipt(await api('apiGetReceipt', App.token, id), { afterSale: false });
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    showLoading(false);
+  }
+}
+
+Views.dashboard = function () {
+  if (!Dash.filter) Dash.filter = rangeFilter('dashFilters', 'dashCustom', dashLoad);
+  dashLoad(Dash.filter.get());
+};
+
+async function dashLoad(f) {
+  ['kpiSales', 'kpiCount', 'kpiAvg'].forEach(function (id) { $(id).textContent = '…'; });
+  $('dashExtra').textContent = '';
+  $('dashMethods').innerHTML = '';
+  $('dashTop').innerHTML = '';
+  try {
+    const d = await api('apiGetDashboard', App.token, f);
+    $('dashRange').textContent = rangeLabel(d.from, d.to) + ' · transaksi selesai (tanpa void)';
+    $('kpiSales').textContent = rp(d.sales);
+    $('kpiCount').textContent = fmtNum(d.count);
+    $('kpiAvg').textContent = rp(d.average);
+    $('dashProfit').hidden = d.grossProfit === null;
+    if (d.grossProfit !== null) {
+      $('kpiNet').textContent = rp(d.net);
+      $('kpiCogs').textContent = rp(d.cogs);
+      $('kpiGp').innerHTML = rp(d.grossProfit) + ' <span class="small muted">' + String(d.margin).replace('.', ',') + '%</span>';
+    }
+    $('dashTrendCard').hidden = !(d.byDay && d.byDay.length > 1);
+    if (d.byDay && d.byDay.length > 1) {
+      $('dashTrend').innerHTML = d.grossProfit !== null ? colChart(d.byDay, 'net', 'gp', ['Penjualan bersih', 'Laba kotor']) : colChart(d.byDay, 'net', null, ['Penjualan bersih']);
+    }
+    $('dashExtra').textContent = 'Termasuk ' + d.serviceLabel + ' ' + rp(d.service) + ' dan ' + d.taxLabel + ' ' + rp(d.tax) +
+      ' · Makan di tempat ' + d.dineIn + ' (' + d.guests + ' tamu) · Takeaway ' + d.takeaway;
+    const max = d.byMethod.reduce(function (m, x) { return Math.max(m, x.total); }, 0) || 1;
+    $('dashMethods').innerHTML = d.byMethod.length ? d.byMethod.map(function (m) {
+      return '<div class="bar-row"><div class="bar-label"><span>' + esc(m.label) + '</span><span>' + rp(m.total) + ' · ' + m.count + 'x</span></div>' +
+        '<div class="bar"><i style="width:' + Math.max(2, Math.round(m.total / max * 100)) + '%"></i></div></div>';
+    }).join('') : '<div class="empty">Belum ada penjualan.</div>';
+    $('dashTop').innerHTML = d.topProducts.length ? d.topProducts.map(function (p, i) {
+      return '<div class="rank"><b>' + (i + 1) + '</b><span>' + esc(p.name) + '<br><span class="muted small">' + rp(p.sales) + '</span></span><span>' + p.qty + ' terjual</span></div>';
+    }).join('') : '<div class="empty">Belum ada penjualan.</div>';
+  } catch (e) {
+    $('dashMethods').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
+  }
+}
+
+/* ---------------- Notifikasi (admin / owner) ---------------- */
+Views.notifications = function () { notifLoad(); };
+
+async function notifLoad() {
+  try {
+    Notif.data = await api('apiGetNotifications', App.token, { unreadOnly: Notif.unreadOnly });
+    setUnread(Notif.data.unread);
+    notifRender();
+  } catch (e) {
+    Mod.render('<p class="error">' + esc(e.message) + '</p>');
+  }
+}
+
+function notifRender() {
+  const d = Notif.data;
+  let html = '<div class="filter-bar">' +
+    '<button class="chip' + (Notif.unreadOnly ? ' active' : '') + '" type="button" data-act="filter" data-u="1">Belum dibaca (' + d.unread + ')</button>' +
+    '<button class="chip' + (!Notif.unreadOnly ? ' active' : '') + '" type="button" data-act="filter" data-u="0">Semua</button></div>' +
+    (d.unread ? '<div class="toolbar"><span></span><button class="btn small" type="button" data-act="all">Tandai semua dibaca</button></div>' : '') +
+    '<p class="muted small">Setiap void (item, bill, transaksi yang sudah dibayar), kas keluar/masuk, setor, dan selisih kas saat buka/tutup shift otomatis tercatat di sini, lengkap dengan alasan dan siapa yang melakukannya.</p>' +
+    '<div class="table-list">';
+  html += d.items.length ? d.items.map(function (n) {
+    return '<div class="row-item notif' + (n.read ? ' read' : '') + '">' +
+      '<div class="row-main"><div class="row-title">' + esc(n.title) + (n.read ? '' : ' <span class="pill bad">Baru</span>') + '</div>' +
+      '<div class="row-sub">' + esc(n.message) + '</div>' +
+      (n.reason || /^VOID/.test(n.type) ? '<div class="row-sub"><b>' + (/^VOID/.test(n.type) ? 'Alasan' : 'Catatan') + ':</b> ' + esc(n.reason || '-') + '</div>' : '') +
+      '<div class="row-sub">' + esc(n.when) + ' · ' + esc(n.user) + (n.role ? ' (' + esc(n.role) + ')' : '') + (n.ref ? ' · ' + esc(n.ref) : '') +
+      (n.read ? ' · dibaca ' + esc(n.readBy) : '') + '</div></div>' +
+      '<div class="row-right' + (/DIFF/.test(n.type) && n.amount ? ' bad-text' : '') + '">' + (/DIFF/.test(n.type) ? rpSigned(n.amount) : rp(n.amount)) +
+      (n.type === 'VOID_PAID' ? '<div><button class="link-btn small" type="button" data-act="receipt" data-ref="' + esc(n.ref) + '">Lihat struk</button></div>' : '') +
+      (/^(SETOR|SHIFT|CASH)/.test(n.type) && can('shift.view') ? '<div><button class="link-btn small" type="button" data-act="shift">Buka Kas & Shift</button></div>' : '') +
+      (n.read ? '' : '<div><button class="link-btn small" type="button" data-act="read" data-id="' + esc(n.id) + '">✓ Tandai dibaca</button></div>') +
+      '</div></div>';
+  }).join('') : '<div class="empty">' + (Notif.unreadOnly ? 'Tidak ada notifikasi baru.' : 'Belum ada notifikasi.') + '</div>';
+  Mod.render(html + '</div>');
+  Mod.on({
+    filter: function (el) { Notif.unreadOnly = el.dataset.u === '1'; notifLoad(); },
+    all: async function () {
+      try { const r = await api('apiMarkNotificationsRead', App.token, 'ALL'); setUnread(r.unread); toast('Semua ditandai sudah dibaca'); notifLoad(); }
+      catch (e) { toast(e.message, 'err'); }
+    },
+    read: async function (el) {
+      try { const r = await api('apiMarkNotificationsRead', App.token, [el.dataset.id]); setUnread(r.unread); notifLoad(); }
+      catch (e) { toast(e.message, 'err'); }
+    },
+    receipt: function (el) { openReceipt(el.dataset.ref); },
+    shift: function () { go('shift'); }
+  });
+}
+
+$('histList').addEventListener('click', function (e) {
+  const b = e.target.closest('[data-id]');
+  if (b) openReceipt(b.dataset.id);
+});
+</script>

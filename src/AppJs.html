@@ -1,0 +1,811 @@
+<script>
+/* ================= AppJs: login, menu, shared helpers, receipts, notifications ================= */
+
+const App = { token: null, user: null, nav: [], perms: [], settings: {}, paymentMethods: {}, payOrder: [], roleLabels: {},
+              view: null, resetHooks: [], unread: 0, bellTimer: null };
+const Views = {};
+const $ = function (id) { return document.getElementById(id); };
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function fmtNum(n) {
+  n = Math.round(Number(n) || 0);
+  const s = String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return (n < 0 ? '-' : '') + s;
+}
+function rp(n) { return (Number(n) < 0 ? '-Rp ' : 'Rp ') + fmtNum(Math.abs(Number(n) || 0)); }
+function rpSigned(n) { return (Number(n) > 0 ? '+' : '') + rp(n); }
+function parseMoney(s) { const d = String(s == null ? '' : s).replace(/[^0-9]/g, ''); return d === '' ? 0 : parseInt(d, 10); }
+function can(p) { return App.perms.indexOf('*') >= 0 || App.perms.indexOf(p) >= 0; }
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+function dateLabel(ds) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ds || '')) return ds || '';
+  const p = ds.split('-');
+  return p[2] + ' ' + MONTHS[parseInt(p[1], 10) - 1] + ' ' + p[0];
+}
+function rangeLabel(from, to) { return from === to ? dateLabel(from) : dateLabel(from) + ' – ' + dateLabel(to); }
+function roleLabel(r) { return App.roleLabels[r] || r; }
+const STATUS_LABELS = { COMPLETED: 'Selesai', VOID: 'Void', DRAFT: 'Draft', ORDERED: 'Dipesan', PARTIAL: 'Sebagian',
+                        RECEIVED: 'Diterima', CANCELLED: 'Dibatalkan', OPEN: 'Terbuka', PAID: 'Dibayar', MERGED: 'Digabung',
+                        PENDING: 'Menunggu', REJECTED: 'Ditolak', CLOSED: 'Ditutup' };
+function statusLabel(s) { return STATUS_LABELS[s] || s; }
+/** 85 -> "1j 25m", 40 -> "40 mnt" */
+function fmtDur(m) {
+  m = Math.max(0, Math.round(Number(m) || 0));
+  return m < 60 ? m + ' mnt' : Math.floor(m / 60) + 'j ' + String(m % 60).padStart(2, '0') + 'm';
+}
+function discLabel(d) {
+  if (!d || !d.value) return '';
+  return d.type === 'PCT' ? String(d.value).replace('.', ',') + '%' : rp(d.value);
+}
+
+const store = {
+  get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  remove: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+
+/** Calls a server function. Returns a Promise. */
+function api(fn) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (resolve, reject) {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (res && res.ok) return resolve(res.data);
+        const err = new Error((res && res.error) || 'Tidak ada jawaban dari server. Coba lagi.');
+        err.code = res && res.code;
+        if (err.code === 'AUTH' && App.token) forceLogout(err.message);
+        reject(err);
+      })
+      .withFailureHandler(function (e) {
+        const err = new Error('Masalah koneksi. Cek internet lalu coba lagi. (' + ((e && e.message) || e) + ')');
+        err.network = true;
+        reject(err);
+      })[fn].apply(null, args);
+  });
+}
+
+let loadingCount = 0;
+function showLoading(on, text) {
+  loadingCount = Math.max(0, loadingCount + (on ? 1 : -1));
+  if (on && text) $('loadingText').textContent = text;
+  $('loading').hidden = loadingCount === 0;
+}
+
+let toastTimer = null;
+function toast(msg, type) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (type ? ' ' + type : '');
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.hidden = true; }, type === 'warn' || type === 'err' ? 5000 : 2500);
+}
+
+/* ---------- Money inputs: show 50.000 while typing ---------- */
+document.addEventListener('input', function (e) {
+  const el = e.target;
+  if (el.classList && el.classList.contains('money-input') && el.value !== '') {
+    el.value = fmtNum(parseMoney(el.value));
+  }
+}, true);
+
+/* ================= LOGIN ================= */
+const Login = { users: [], selected: null, pin: '' };
+
+function loginStep(step) {
+  $('loginStepUser').hidden = step !== 'user';
+  $('loginStepPin').hidden = step !== 'pin';
+  $('loginError').hidden = true;
+}
+
+async function showLogin(msg) {
+  $('appView').hidden = true;
+  $('loginView').hidden = false;
+  loginStep('user');
+  $('loginUsers').innerHTML = '<div class="muted">Memuat…</div>';
+  if (msg) toast(msg, 'warn');
+  try {
+    const d = await api('apiGetLoginUsers');
+    Login.users = d.users;
+    if (d.businessName) $('loginBusiness').textContent = d.businessName;
+    $('loginUsers').innerHTML = d.users.length
+      ? d.users.map(function (u) {
+          const initials = u.name.split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+          return '<button class="user-btn" type="button" data-u="' + esc(u.username) + '"><span class="avatar">' + esc(initials) +
+                 '</span><span>' + esc(u.name) + '</span></button>';
+        }).join('')
+      : '<p class="muted small" style="grid-column:1/-1">Belum ada pengguna. Admin harus menjalankan <b>JayaPOS › Setup</b> di Google Sheet.</p>';
+  } catch (e) {
+    $('loginUsers').innerHTML = '<p class="error" style="grid-column:1/-1">' + esc(e.message) + '</p>' +
+      '<button class="btn" type="button" style="grid-column:1/-1" onclick="showLogin()">Coba lagi</button>';
+  }
+}
+
+function renderPin() {
+  let dots = '';
+  const n = Math.max(4, Login.pin.length);
+  for (let i = 0; i < n; i++) dots += '<i class="' + (i < Login.pin.length ? 'on' : '') + '"></i>';
+  $('pinDots').innerHTML = dots;
+}
+
+function pinPress(k) {
+  if (k === 'del') Login.pin = Login.pin.slice(0, -1);
+  else if (k === 'ok') return loginSubmit();
+  else if (Login.pin.length < 8) Login.pin += k;
+  $('loginError').hidden = true;
+  renderPin();
+}
+
+async function loginSubmit() {
+  if (Login.pin.length < 4) { $('loginError').textContent = 'PIN minimal 4 angka.'; $('loginError').hidden = false; return; }
+  showLoading(true, 'Masuk…');
+  try {
+    const s = await api('apiLogin', Login.selected.username, Login.pin);
+    startSession(s);
+  } catch (e) {
+    $('loginError').textContent = e.message;
+    $('loginError').hidden = false;
+  } finally {
+    Login.pin = '';
+    renderPin();
+    showLoading(false);
+  }
+}
+
+function startSession(s) {
+  App.token = s.token;
+  App.user = s.user;
+  App.nav = s.nav;
+  App.perms = s.permissions;
+  App.settings = s.settings;
+  App.paymentMethods = s.paymentMethods;
+  App.payOrder = (s.paymentOrder || Object.keys(s.paymentMethods)).filter(function (k) { return s.paymentMethods[k]; });
+  App.roleLabels = s.roleLabels || {};
+  store.set('jaya_token', s.token);
+  $('loginView').hidden = true;
+  $('appView').hidden = false;
+  $('userChip').textContent = s.user.name;
+  $('drawerUser').innerHTML = '<b>' + esc(s.user.name) + '</b><span>@' + esc(s.user.username) + ' · ' + esc(roleLabel(s.user.role)) + '</span>';
+  App.version = s.version;
+  $('appVersion').textContent = 'JayaPOS v' + s.version;
+  renderNav();
+  setUnread(s.unreadNotifications || 0);
+  startBell();
+  go(defaultView());
+}
+
+function clearSession() {
+  App.token = null;
+  store.remove('jaya_token');
+  App.resetHooks.forEach(function (f) { try { f(); } catch (e) {} });
+  document.querySelectorAll('.modal').forEach(function (m) { m.hidden = true; });
+  if (App.bellTimer) { clearInterval(App.bellTimer); App.bellTimer = null; }
+  setUnread(0);
+}
+
+async function logout() {
+  const t = App.token;
+  clearSession();
+  closeDrawer();
+  try { if (t) await api('apiLogout', t); } catch (e) {}
+  showLogin();
+}
+
+function forceLogout(msg) {
+  if (!App.token) return;
+  clearSession();
+  showLogin(msg);
+}
+
+/* ================= NOTIFICATION BELL (admin / owner) ================= */
+function setUnread(n) {
+  App.unread = n || 0;
+  const show = !!App.token && can('notifications.view');
+  $('bellBtn').hidden = !show;
+  $('bellCount').hidden = !App.unread;
+  $('bellCount').textContent = App.unread > 99 ? '99+' : String(App.unread);
+  const navBtn = document.querySelector('.nav-item[data-view="notifications"]');
+  if (navBtn) navBtn.innerHTML = 'Notifikasi' + (App.unread ? '<span class="badge bad-badge">' + App.unread + '</span>' : '');
+}
+
+function startBell() {
+  if (App.bellTimer) clearInterval(App.bellTimer);
+  if (!can('notifications.view')) return;
+  App.bellTimer = setInterval(async function () {
+    if (!App.token || document.hidden) return;
+    try { const d = await api('apiNotificationCount', App.token); setUnread(d.unread); } catch (e) {}
+  }, 60000);
+}
+
+/* ================= NAVIGATION ================= */
+function defaultView() {
+  const ids = App.nav.filter(function (n) { return n.ready; }).map(function (n) { return n.id; });
+  if (ids.indexOf('pos') >= 0 && can('pos.sell')) return 'pos';
+  if (ids.indexOf('tables') >= 0 && can('tables.serve')) return 'tables';
+  if (ids.indexOf('dashboard') >= 0) return 'dashboard';
+  return ids[0] || 'home';
+}
+
+function renderNav() {
+  const ready = App.nav.filter(function (n) { return n.ready; });
+  const planned = App.nav.filter(function (n) { return !n.ready; });
+  let lastSection = null;
+  const multi = ready.some(function (n) { return n.section !== ready[0].section; });
+  $('navReady').innerHTML = ready.map(function (n) {
+    let head = '';
+    if (multi && n.section !== lastSection) { head = '<div class="nav-section">' + esc(n.section) + '</div>'; lastSection = n.section; }
+    return head + '<button class="nav-item" type="button" data-view="' + n.id + '">' + esc(n.label) + '</button>';
+  }).join('');
+  $('navPlanned').innerHTML = planned.map(function (n) {
+    return '<button class="nav-item planned" type="button" data-view="' + n.id + '">' + esc(n.label) +
+           '<span class="badge">Tahap ' + n.phase + '</span></button>';
+  }).join('');
+  $('navPlannedWrap').hidden = !planned.length;
+}
+
+function go(id) {
+  closeDrawer();
+  document.querySelectorAll('.view').forEach(function (v) { v.hidden = true; });
+  document.querySelectorAll('.nav-item[data-view]').forEach(function (b) { b.classList.toggle('active', b.dataset.view === id); });
+  if (id === 'home') {
+    App.view = 'home';
+    $('pageTitle').textContent = 'Beranda';
+    $('homeTitle').textContent = 'Halo, ' + App.user.name;
+    $('homeList').innerHTML = App.nav.map(function (n) {
+      return '<li>' + esc(n.label) + ' — Tahap ' + n.phase + '</li>';
+    }).join('') || '<li>Belum ada modul untuk role Anda.</li>';
+    $('view-home').hidden = false;
+    return;
+  }
+  const item = App.nav.filter(function (n) { return n.id === id; })[0];
+  if (!item) return go(defaultView());
+  App.view = id;
+  $('pageTitle').textContent = item.label;
+  if (!item.ready) {
+    $('plannedTitle').textContent = item.label;
+    $('plannedPhase').textContent = 'Direncanakan · Tahap ' + item.phase;
+    $('plannedAbout').textContent = item.about;
+    $('view-planned').hidden = false;
+    return;
+  }
+  const v = $('view-' + id) || $('view-module');
+  v.hidden = false;
+  if (v.id === 'view-module') $('moduleBody').innerHTML = '<div class="empty">Memuat…</div>';
+  if (Views[id]) Views[id](id);
+}
+
+function openDrawer() { $('drawer').classList.add('open'); $('drawerBackdrop').hidden = false; }
+function closeDrawer() { $('drawer').classList.remove('open'); $('drawerBackdrop').hidden = true; }
+
+function startClock() {
+  const tick = function () {
+    const d = new Date();
+    $('clock').textContent = dateLabel(todayISO()) + ' · ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  };
+  tick();
+  setInterval(tick, 15000);
+}
+
+/* ================= DATE RANGE FILTER ================= */
+function rangeFilter(barId, customId, onChange, initial) {
+  const opts = [['today', 'Hari ini'], ['yesterday', 'Kemarin'], ['week', 'Minggu ini'], ['month', 'Bulan ini'], ['custom', 'Pilih tanggal']];
+  const bar = $(barId);
+  const custom = $(customId);
+  const fromEl = custom.querySelector('.rf-from');
+  const toEl = custom.querySelector('.rf-to');
+  let range = (initial && initial.range) || 'today';
+  if (range === 'custom') { fromEl.value = initial.from || ''; toEl.value = initial.to || ''; custom.hidden = false; }
+  bar.innerHTML = opts.map(function (o) {
+    return '<button class="chip' + (o[0] === range ? ' active' : '') + '" type="button" data-r="' + o[0] + '">' + o[1] + '</button>';
+  }).join('');
+  const get = function () {
+    return range === 'custom' ? { range: 'custom', from: fromEl.value, to: toEl.value } : { range: range };
+  };
+  bar.addEventListener('click', function (e) {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    bar.querySelectorAll('.chip').forEach(function (c) { c.classList.toggle('active', c === b); });
+    range = b.dataset.r;
+    custom.hidden = range !== 'custom';
+    if (range === 'custom') {
+      if (!fromEl.value) fromEl.value = todayISO();
+      if (!toEl.value) toEl.value = todayISO();
+    } else {
+      onChange(get());
+    }
+  });
+  custom.querySelector('.rf-apply').addEventListener('click', function () { onChange(get()); });
+  return { get: get };
+}
+
+/* ================= RECEIPT ================= */
+let currentReceipt = null;
+
+function receiptHtml(r) {
+  const h = r.header || {};
+  const row = function (l, v, cls) {
+    return '<div class="r-row' + (cls ? ' ' + cls : '') + '"><span>' + esc(l) + '</span><span>' + esc(v) + '</span></div>';
+  };
+  let s = '<div class="r-center r-strong">' + esc(String(h.business || '').toUpperCase()) + '</div>';
+  s += '<div class="r-center">' + esc(h.app || 'JayaPOS') + '</div>';
+  if (h.address) s += '<div class="r-center">' + esc(h.address) + '</div>';
+  if (h.phone) s += '<div class="r-center">' + esc(h.phone) + '</div>';
+  s += '<div class="r-hr"></div>';
+  s += row('No.', r.id) + row('Tanggal', r.dateLabel) + row('Jam', r.time) + row('Kasir', r.cashier);
+  s += r.tableName ? row('Meja', r.tableName + (r.pax ? ' · ' + r.pax + ' pax' : '')) : row('Pesanan', 'Takeaway');
+  if (r.guestName) s += row('Tamu', r.guestName);
+  if (r.splitInfo) s += row('Split', r.splitInfo);
+  s += '<div class="r-hr"></div>';
+  r.items.forEach(function (it) {
+    s += '<div class="r-item"><div>' + esc(it.name) + '</div>' + (it.note ? '<div class="r-note">* ' + esc(it.note) + '</div>' : '') +
+      row(it.qty + ' x ' + rp(it.price), rp(it.total));
+    if (it.discount) s += row('  Diskon' + (it.discountInfo && it.discountInfo.indexOf('%') > 0 ? ' ' + it.discountInfo : ''), '-' + rp(it.discount));
+    s += '</div>';
+  });
+  s += '<div class="r-hr"></div>';
+  s += row('Subtotal', rp(r.subtotal));
+  if (r.itemDiscount) s += row('Diskon item', '-' + rp(r.itemDiscount));
+  if (r.billDiscount) s += row('Diskon bill' + (r.billDiscountInfo && r.billDiscountInfo.indexOf('%') > 0 ? ' ' + r.billDiscountInfo : ''), '-' + rp(r.billDiscount));
+  if (r.service) s += row(h.serviceLabel || 'Service', rp(r.service));
+  if (r.tax) s += row(h.taxLabel || 'PB1', rp(r.tax));
+  if (r.rounding) s += row('Pembulatan', rpSigned(r.rounding));
+  s += row('TOTAL', rp(r.total), 'big');
+  s += '<div class="r-hr"></div>';
+  receiptPayLines(r).forEach(function (x) { s += row(x[0], x[1]); });
+  if (r.status && r.status !== 'COMPLETED') {
+    s += '<div class="r-center r-strong">*** ' + esc(statusLabel(r.status).toUpperCase()) + ' ***</div>';
+    if (r.voidReason) s += '<div class="r-center">' + esc(r.voidReason) + ' (' + esc(r.voidBy) + ')</div>';
+  }
+  s += '<div class="r-hr"></div><div class="r-center">' + esc(h.footer || 'Terima Kasih') + '</div><div class="r-hr"></div>';
+  return s;
+}
+
+/** Payment rows of a receipt: one block per person when the bill was split equally. */
+function receiptPayLines(r) {
+  const pays = r.payments && r.payments.length ? r.payments : [{ method: r.method, label: r.methodLabel, amount: r.total, paid: r.amountPaid, change: r.change }];
+  const out = [];
+  if (pays.length === 1) {
+    const p = pays[0];
+    out.push(['Pembayaran', String(p.label || r.methodLabel || '').toUpperCase()]);
+    out.push(['Dibayar', rp(p.paid)]);
+    if (p.method === 'CASH') out.push(['Kembali', rp(p.change)]);
+    return out;
+  }
+  pays.forEach(function (p, i) {
+    out.push(['Orang ' + (i + 1) + ' · ' + String(p.label).toUpperCase(), rp(p.amount)]);
+    if (p.method === 'CASH') out.push(['  Tunai ' + rp(p.paid), 'Kembali ' + rp(p.change)]);
+  });
+  return out;
+}
+
+function receiptText(r) {
+  const h = r.header || {};
+  const W = h.widthMm === 80 ? 48 : 32;
+  const hr = '-'.repeat(W);
+  const center = function (s) { s = String(s); return s.length >= W ? s : ' '.repeat(Math.floor((W - s.length) / 2)) + s; };
+  const lr = function (l, v) {
+    l = String(l); v = String(v);
+    const gap = W - l.length - v.length;
+    return gap >= 1 ? l + ' '.repeat(gap) + v : l + '\n' + ' '.repeat(Math.max(0, W - v.length)) + v;
+  };
+  const out = [hr, center(String(h.business || '').toUpperCase()), center(h.app || 'JayaPOS')];
+  if (h.address) out.push(center(h.address));
+  if (h.phone) out.push(center(h.phone));
+  out.push(hr, lr('No.', r.id), lr('Tanggal', r.dateLabel), lr('Jam', r.time), lr('Kasir', r.cashier));
+  out.push(r.tableName ? lr('Meja', r.tableName + (r.pax ? ' / ' + r.pax + ' pax' : '')) : lr('Pesanan', 'Takeaway'));
+  if (r.guestName) out.push(lr('Tamu', r.guestName));
+  if (r.splitInfo) out.push(lr('Split', r.splitInfo));
+  out.push(hr);
+  r.items.forEach(function (it) {
+    out.push(it.name);
+    if (it.note) out.push('  * ' + it.note);
+    out.push(lr(it.qty + ' x ' + rp(it.price), rp(it.total)));
+    if (it.discount) out.push(lr('  Diskon' + (it.discountInfo && it.discountInfo.indexOf('%') > 0 ? ' ' + it.discountInfo : ''), '-' + rp(it.discount)));
+  });
+  out.push(hr, lr('Subtotal', rp(r.subtotal)));
+  if (r.itemDiscount) out.push(lr('Diskon item', '-' + rp(r.itemDiscount)));
+  if (r.billDiscount) out.push(lr('Diskon bill' + (r.billDiscountInfo && r.billDiscountInfo.indexOf('%') > 0 ? ' ' + r.billDiscountInfo : ''), '-' + rp(r.billDiscount)));
+  if (r.service) out.push(lr(h.serviceLabel || 'Service', rp(r.service)));
+  if (r.tax) out.push(lr(h.taxLabel || 'PB1', rp(r.tax)));
+  if (r.rounding) out.push(lr('Pembulatan', rpSigned(r.rounding)));
+  out.push(lr('TOTAL', rp(r.total)), '');
+  receiptPayLines(r).forEach(function (x) { out.push(lr(x[0], x[1])); });
+  if (r.status && r.status !== 'COMPLETED') out.push(center('*** ' + statusLabel(r.status).toUpperCase() + ' ***'));
+  out.push(hr, center(h.footer || 'Terima Kasih'), hr);
+  return out.join('\n');
+}
+
+function showReceipt(r, opts) {
+  opts = opts || {};
+  currentReceipt = r;
+  $('receiptTitle').textContent = opts.afterSale ? 'Pesanan selesai' : 'Struk ' + r.id;
+  $('receiptSuccess').hidden = !opts.afterSale;
+  $('receiptSuccess').textContent = '✓ Tersimpan · ' + r.id + (r.change ? ' · Kembali ' + rp(r.change) : '');
+  const body = $('receiptBody');
+  body.className = 'receipt' + ((r.header && r.header.widthMm === 80) ? ' w80' : '');
+  body.innerHTML = receiptHtml(r);
+  $('receiptTextWrap').hidden = true;
+  $('receiptVoid').hidden = !r.canVoid;
+  $('receiptDone').textContent = opts.afterSale ? (r.openOrder ? 'Lanjut ke sisa bill' : 'Pesanan Baru') : 'Tutup';
+  $('receiptModal').hidden = false;
+}
+
+function printReceipt() {
+  if (!currentReceipt) return;
+  const area = $('printArea');
+  area.innerHTML = '<div class="receipt' + ((currentReceipt.header && currentReceipt.header.widthMm === 80) ? ' w80' : '') + '">' +
+                   receiptHtml(currentReceipt) + '</div>';
+  setTimeout(function () {
+    try { window.print(); }
+    catch (e) { toast('Browser ini memblokir print. Pakai "Salin teks".', 'warn'); }
+  }, 50);
+}
+
+async function copyReceipt() {
+  if (!currentReceipt) return;
+  const text = receiptText(currentReceipt);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Teks struk disalin');
+  } catch (e) {
+    const ta = $('receiptText');
+    ta.value = text;
+    $('receiptTextWrap').hidden = false;
+    ta.focus();
+    ta.select();
+  }
+}
+
+/** Void a paid transaction from the receipt screen (reason required; admin/owner get a note). */
+async function voidCurrentReceipt() {
+  const r = currentReceipt;
+  if (!r || !r.canVoid) return;
+  const reason = await askReason('Void transaksi ' + r.id,
+    'Total ' + rp(r.total) + ' (' + r.methodLabel + '). Transaksi akan ditandai VOID, tidak dihitung di laporan, dan stok bahan dikembalikan. Admin & owner akan mendapat notifikasi.',
+    'Void transaksi');
+  if (!reason) return;
+  showLoading(true, 'Memproses void…');
+  try {
+    const res = await api('apiVoidTransaction', App.token, r.id, reason);
+    toast('Transaksi ' + r.id + ' sudah di-void');
+    showReceipt(res, { afterSale: false });
+    if (App.view === 'history' && typeof Views.history === 'function') Views.history();
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    showLoading(false);
+  }
+}
+
+/* ================= REASON PROMPT (void) ================= */
+const QUICK_REASONS = ['Salah input', 'Tamu batal', 'Pesanan dobel', 'Makanan/minuman rusak', 'Komplain tamu'];
+
+/** Opens a small form asking why. Resolves with the reason, or null if cancelled. */
+function askReason(title, info, submitLabel) {
+  return new Promise(function (resolve) {
+    let settled = false;
+    const html = '<p class="small">' + esc(info) + '</p>' +
+      '<div class="quick-reasons">' + QUICK_REASONS.map(function (q) { return '<button type="button" class="chip" data-q="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
+      '<label class="field"><span>Alasan (wajib)</span><textarea id="reasonText" rows="2" maxlength="150" placeholder="Tulis alasannya…"></textarea></label>';
+    openCustom({
+      title: title, html: html, submitLabel: submitLabel || 'Simpan',
+      onOpen: function (body, close) {
+        body.onclick = function (e) {
+          const b = e.target.closest('[data-q]');
+          if (b) { $('reasonText').value = b.dataset.q; $('reasonText').focus(); }
+        };
+        const cancel = function () { if (!settled) { settled = true; resolve(null); } close(); };
+        $('formCancel').onclick = cancel;
+        $('formCloseX').onclick = cancel;
+        setTimeout(function () { $('reasonText').focus(); }, 50);
+      },
+      onSubmit: async function () {
+        const v = $('reasonText').value.trim();
+        if (v.length < 3) throw new Error('Tulis alasan void (minimal 3 huruf).');
+        settled = true;
+        resolve(v);
+      }
+    });
+  });
+}
+
+/* ================= FORM MODAL ================= */
+function fieldHtml(f) {
+  const id = 'ff_' + f.name;
+  const v = f.value == null ? '' : f.value;
+  const help = f.help ? '<span class="help">' + esc(f.help) + '</span>' : '';
+  if (f.type === 'select') {
+    return '<label class="field"><span>' + esc(f.label) + '</span><select id="' + id + '">' +
+      f.options.map(function (o) {
+        const val = typeof o === 'object' ? o.value : o;
+        const lab = typeof o === 'object' ? o.label : o;
+        return '<option value="' + esc(val) + '"' + (String(val) === String(v) ? ' selected' : '') + '>' + esc(lab) + '</option>';
+      }).join('') + '</select>' + help + '</label>';
+  }
+  if (f.type === 'checkbox') {
+    return '<label class="field check"><input type="checkbox" id="' + id + '"' + (v ? ' checked' : '') + '><span>' + esc(f.label) + '</span></label>';
+  }
+  if (f.type === 'number') {
+    return '<label class="field"><span>' + esc(f.label) + '</span><input id="' + id + '" type="number" inputmode="decimal" step="any" min="' +
+      (f.min == null ? '' : f.min) + '" max="' + (f.max == null ? '' : f.max) + '" value="' + esc(v) + '">' + help + '</label>';
+  }
+  if (f.type === 'image') {
+    return '<div class="field"><span>' + esc(f.label) + '</span><div class="img-field">' +
+      (v ? '<img id="' + id + '_prev" src="' + esc(v) + '" alt="">' : '<span class="img-none" id="' + id + '_none">Belum ada foto</span><img id="' + id + '_prev" alt="" hidden>') +
+      '<div><input type="file" accept="image/*" id="' + id + '" data-imgfield="1">' +
+      (v ? '<label class="switch-label small"><input type="checkbox" id="' + id + '_rm"> Hapus foto</label>' : '') +
+      '</div></div>' + help + '</div>';
+  }
+  if (f.type === 'money') {
+    return '<label class="field"><span>' + esc(f.label) + '</span><input id="' + id + '" class="money-input" inputmode="numeric" autocomplete="off" value="' +
+      (v === '' || v === null ? '' : fmtNum(v)) + '">' + help + '</label>';
+  }
+  const typeAttr = f.type === 'pin' ? ' type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"' : ' type="text" autocomplete="off"';
+  const list = f.datalist ? ' list="' + id + '_dl"' : '';
+  const dl = f.datalist ? '<datalist id="' + id + '_dl">' + f.datalist.map(function (o) { return '<option value="' + esc(o) + '">'; }).join('') + '</datalist>' : '';
+  return '<label class="field"><span>' + esc(f.label) + '</span><input id="' + id + '"' + typeAttr + list + ' value="' + esc(v) + '"' +
+    (f.readonly ? ' readonly' : '') + '>' + dl + help + '</label>';
+}
+
+function openForm(cfg) {
+  const fb = $('formBody');
+  fb.oninput = null; fb.onchange = null; fb.onclick = null;
+  $('formSubmit').hidden = false;
+  $('formCancel').textContent = 'Batal';
+  $('formTitle').textContent = cfg.title;
+  $('formBody').innerHTML = cfg.fields.map(fieldHtml).join('');
+  $('formError').hidden = true;
+  $('formSubmit').textContent = cfg.submitLabel || 'Simpan';
+  $('formModal').hidden = false;
+  const close = function () { $('formModal').hidden = true; };
+  $('formCancel').onclick = close;
+  $('formCloseX').onclick = close;
+  $('formSubmit').onclick = async function () {
+    const values = {};
+    cfg.fields.forEach(function (f) {
+      const el = $('ff_' + f.name);
+      if (!el) return;
+      if (f.type === 'checkbox') values[f.name] = el.checked;
+      else if (f.type === 'number') values[f.name] = el.value.trim() === '' ? null : Number(el.value);
+      else if (f.type === 'image') values[f.name] = { dataUrl: el._dataUrl || null, remove: !!($(el.id + '_rm') && $(el.id + '_rm').checked) };
+      else if (f.type === 'money') values[f.name] = el.value.trim() === '' ? null : parseMoney(el.value);
+      else values[f.name] = el.value.trim();
+    });
+    $('formSubmit').disabled = true;
+    $('formError').hidden = true;
+    try {
+      await cfg.onSubmit(values);
+      close();
+    } catch (e) {
+      $('formError').textContent = e.message;
+      $('formError').hidden = false;
+    } finally {
+      $('formSubmit').disabled = false;
+    }
+  };
+}
+
+/** Shrinks a photo on the phone before upload (max 800 px, JPEG), so saving is fast. */
+function resizeImage(file, max) {
+  return new Promise(function (resolve, reject) {
+    if (!file || !/^image\//.test(file.type)) return reject(new Error('Pilih file gambar (JPG atau PNG).'));
+    const reader = new FileReader();
+    reader.onerror = function () { reject(new Error('Gambar ini tidak bisa dibaca.')); };
+    reader.onload = function () {
+      const img = new Image();
+      img.onerror = function () { reject(new Error('Format gambar ini tidak didukung. Coba JPG.')); };
+      img.onload = function () {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+document.addEventListener('change', async function (e) {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.imgfield || !el.files || !el.files[0]) return;
+  try {
+    el._dataUrl = await resizeImage(el.files[0], 800);
+    const prev = $(el.id + '_prev');
+    if (prev) { prev.src = el._dataUrl; prev.hidden = false; }
+    if ($(el.id + '_none')) $(el.id + '_none').hidden = true;
+  } catch (err) {
+    el.value = '';
+    el._dataUrl = null;
+    toast(err.message, 'err');
+  }
+});
+
+function fmtShort(n) {
+  n = Number(n) || 0;
+  if (n >= 1000000) return (Math.round(n / 100000) / 10).toString().replace('.', ',') + 'jt';
+  if (n >= 1000) return Math.round(n / 1000) + 'rb';
+  return String(n);
+}
+
+/* ================= Helpers for Phase 2-4 screens ================= */
+const UNIT_FACTORS = { g: 1, kg: 1000, ml: 1, l: 1000, pcs: 1, portion: 1 };
+
+/** 4400 g -> "4,4 kg"; 250 ml -> "250 ml" */
+function humanQty(q, unit) {
+  q = Number(q) || 0;
+  const n = function (x) { return (Math.round(x * 100) / 100).toLocaleString('id-ID'); };
+  if (unit === 'g' && Math.abs(q) >= 1000) return n(q / 1000) + ' kg';
+  if (unit === 'ml' && Math.abs(q) >= 1000) return n(q / 1000) + ' L';
+  return n(q) + ' ' + (unit || '');
+}
+function numFmt(x) { return (Math.round((Number(x) || 0) * 100) / 100).toLocaleString('id-ID'); }
+function pctTag(p) {
+  if (p === null || p === undefined) return '';
+  const cls = p > 40 ? 'bad' : (p > 32 ? 'warn' : 'good');
+  return '<span class="pill ' + cls + '">' + String(p).replace('.', ',') + '%</span>';
+}
+function statusPill(s) {
+  const map = { DRAFT: 'muted', ORDERED: 'info', PARTIAL: 'warn', RECEIVED: 'good', CANCELLED: 'bad', COMPLETED: 'good', VOID: 'bad' };
+  return '<span class="pill ' + (map[s] || 'muted') + '">' + esc(statusLabel(s)) + '</span>';
+}
+
+/** Module screens draw into #moduleBody; one click / input handler per screen. */
+const Mod = {
+  render: function (html) { $('moduleBody').innerHTML = html; },
+  on: function (handlers) {
+    const body = $('moduleBody');
+    body.onclick = function (e) {
+      const el = e.target.closest('[data-act]');
+      if (el && handlers[el.dataset.act]) handlers[el.dataset.act](el, e);
+    };
+    body.oninput = handlers._input || null;
+    body.onchange = handlers._change || null;
+  }
+};
+
+function rangeBarHtml(prefix) {
+  return '<div class="filter-bar" id="' + prefix + 'F"></div>' +
+    '<div class="custom-range" id="' + prefix + 'C" hidden><input type="date" class="rf-from"><span>s/d</span>' +
+    '<input type="date" class="rf-to"><button class="btn small rf-apply" type="button">Tampilkan</button></div>';
+}
+
+/** Modal with custom HTML (line-item editors). cfg: { title, html, submitLabel, readOnly, onOpen(el, close), onSubmit(el) } */
+function openCustom(cfg) {
+  $('formTitle').textContent = cfg.title;
+  $('formBody').innerHTML = cfg.html;
+  $('formError').hidden = true;
+  $('formSubmit').textContent = cfg.submitLabel || 'Simpan';
+  $('formSubmit').hidden = cfg.readOnly === true;
+  $('formCancel').textContent = cfg.readOnly ? 'Tutup' : 'Batal';
+  $('formModal').hidden = false;
+  const body = $('formBody');
+  body.oninput = null; body.onchange = null; body.onclick = null;
+  const close = function () { $('formModal').hidden = true; $('formSubmit').hidden = false; $('formCancel').textContent = 'Batal'; };
+  $('formCancel').onclick = close;
+  $('formCloseX').onclick = close;
+  if (cfg.onOpen) cfg.onOpen(body, close);
+  $('formSubmit').onclick = async function () {
+    $('formSubmit').disabled = true;
+    $('formError').hidden = true;
+    try { await cfg.onSubmit(body); close(); }
+    catch (e) { $('formError').textContent = e.message; $('formError').hidden = false; }
+    finally { $('formSubmit').disabled = false; }
+  };
+}
+function formError(msg) { $('formError').textContent = msg; $('formError').hidden = !msg; }
+
+/** Simple data table (scrolls sideways on phones). cols: [{ label, key|fn, num }] */
+function dataTable(cols, rows, emptyMsg) {
+  if (!rows.length) return '<div class="empty">' + esc(emptyMsg || 'Belum ada data di periode ini.') + '</div>';
+  return '<div class="table-scroll"><table class="data"><thead><tr>' +
+    cols.map(function (c) { return '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.label) + '</th>'; }).join('') +
+    '</tr></thead><tbody>' + rows.map(function (r) {
+      return '<tr>' + cols.map(function (c) {
+        const v = c.fn ? c.fn(r) : esc(r[c.key]);
+        return '<td' + (c.num ? ' class="num"' : '') + '>' + v + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+/** Horizontal bars. items: [{ label, value, note }] */
+function barList(items, fmt) {
+  if (!items.length) return '<div class="empty">Belum ada data di periode ini.</div>';
+  const max = items.reduce(function (m, x) { return Math.max(m, Math.abs(x.value)); }, 0) || 1;
+  return items.map(function (x) {
+    return '<div class="bar-row"><div class="bar-label"><span>' + esc(x.label) + '</span><span>' + (fmt ? fmt(x.value) : rp(x.value)) +
+      (x.note ? ' · ' + esc(x.note) : '') + '</span></div><div class="bar"><i style="width:' +
+      Math.max(2, Math.round(Math.abs(x.value) / max * 100)) + '%"></i></div></div>';
+  }).join('');
+}
+
+/** Daily columns: total (light) with an inner value (dark), e.g. net sales and gross profit. */
+function colChart(items, mainKey, innerKey, labels) {
+  if (!items.length) return '<div class="empty">Belum ada data.</div>';
+  const max = items.reduce(function (m, x) { return Math.max(m, x[mainKey]); }, 0) || 1;
+  const step = Math.ceil(items.length / 10);
+  return '<div class="cols">' + items.map(function (x, i) {
+    const h = Math.round(x[mainKey] / max * 100);
+    const ih = innerKey ? Math.round(Math.max(0, x[innerKey]) / max * 100) : 0;
+    return '<div class="col" title="' + esc(x.label) + ': ' + labels[0] + ' ' + rp(x[mainKey]) + (innerKey ? ' · ' + labels[1] + ' ' + rp(x[innerKey]) : '') + '">' +
+      '<div class="col-bar" style="height:' + h + '%">' + (innerKey ? '<i style="height:' + (h ? Math.round(ih / h * 100) : 0) + '%"></i>' : '') + '</div>' +
+      '<span class="col-lbl">' + (i % step === 0 ? esc(String(x.label).slice(0, 6)) : '') + '</span></div>';
+  }).join('') + '</div><div class="col-legend"><span><i class="lg-main"></i>' + labels[0] + '</span>' +
+    (innerKey ? '<span><i class="lg-inner"></i>' + labels[1] + '</span>' : '') + '</div>';
+}
+
+/* ================= START ================= */
+function appBind() {
+  $('menuBtn').addEventListener('click', openDrawer);
+  $('drawerBackdrop').addEventListener('click', closeDrawer);
+  $('logoutBtn').addEventListener('click', logout);
+  $('bellBtn').addEventListener('click', function () { go('notifications'); });
+  $('drawer').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-view]');
+    if (b) go(b.dataset.view);
+  });
+
+  $('loginUsers').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-u]');
+    if (!b) return;
+    Login.selected = Login.users.filter(function (u) { return u.username === b.dataset.u; })[0];
+    Login.pin = '';
+    $('loginName').textContent = Login.selected.name;
+    loginStep('pin');
+    renderPin();
+  });
+  $('loginBack').addEventListener('click', function () { Login.pin = ''; loginStep('user'); });
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'];
+  $('pinPad').innerHTML = keys.map(function (k) {
+    return '<button type="button" data-k="' + k + '"' + (k === 'ok' ? ' class="ok"' : '') + '>' +
+      (k === 'del' ? '⌫' : k === 'ok' ? 'Masuk' : k) + '</button>';
+  }).join('');
+  $('pinPad').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-k]');
+    if (b) pinPress(b.dataset.k);
+  });
+  document.addEventListener('keydown', function (e) {
+    if ($('loginStepPin').hidden || $('loginView').hidden) return;
+    if (/^\d$/.test(e.key)) pinPress(e.key);
+    else if (e.key === 'Backspace') pinPress('del');
+    else if (e.key === 'Enter') pinPress('ok');
+  });
+
+  $('receiptPrint').addEventListener('click', printReceipt);
+  $('receiptCopy').addEventListener('click', copyReceipt);
+  $('receiptVoid').addEventListener('click', voidCurrentReceipt);
+  const closeReceipt = function () { $('receiptModal').hidden = true; };
+  $('receiptDone').addEventListener('click', closeReceipt);
+  $('receiptCloseX').addEventListener('click', closeReceipt);
+}
+
+async function boot() {
+  appBind();
+  startClock();
+  const saved = store.get('jaya_token');
+  if (saved) {
+    showLoading(true, 'Membuka JayaPOS…');
+    try {
+      const s = await api('apiResume', saved);
+      showLoading(false);
+      return startSession(s);
+    } catch (e) {
+      store.remove('jaya_token');
+    }
+    showLoading(false);
+  }
+  showLogin();
+}
+
+window.addEventListener('load', boot);
+</script>

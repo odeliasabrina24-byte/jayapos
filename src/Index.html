@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <div id="loading" class="loading" hidden><div class="spinner"></div><div id="loadingText">Memuat…</div></div>
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- ================= LOGIN ================= -->
+  <section id="loginView" class="login" hidden>
+    <div class="login-card">
+      <div class="brand-big">Jaya<span>POS</span></div>
+      <div class="muted" id="loginBusiness">Babi Kopi Jaya Bali</div>
+
+      <div id="loginStepUser">
+        <h2>Siapa yang bertugas?</h2>
+        <div id="loginUsers" class="user-grid"></div>
+      </div>
+
+      <div id="loginStepPin" hidden>
+        <button class="link-btn" id="loginBack" type="button">‹ Ganti pengguna</button>
+        <h2 id="loginName"></h2>
+        <div class="muted small">Masukkan PIN Anda</div>
+        <div class="pin-dots" id="pinDots"></div>
+        <div class="pin-pad" id="pinPad"></div>
+        <p class="error" id="loginError" hidden></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= APP ================= -->
+  <div id="appView" hidden>
+    <header class="topbar">
+      <button class="icon-btn" id="menuBtn" aria-label="Menu" type="button">☰</button>
+      <div class="brand">Jaya<span>POS</span></div>
+      <div class="page-title" id="pageTitle"></div>
+      <div class="top-right">
+        <div class="clock" id="clock"></div>
+        <button class="icon-btn bell" id="bellBtn" type="button" aria-label="Notifikasi" hidden>🔔<span class="bell-count" id="bellCount" hidden></span></button>
+        <div class="user-chip" id="userChip"></div>
+      </div>
+    </header>
+
+    <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+    <nav class="drawer" id="drawer">
+      <div class="drawer-user" id="drawerUser"></div>
+      <div id="navReady"></div>
+      <div id="navPlannedWrap">
+        <div class="nav-section">Segera hadir</div>
+        <div id="navPlanned"></div>
+      </div>
+      <button class="nav-item logout" id="logoutBtn" type="button">Keluar</button>
+      <div class="drawer-foot" id="appVersion"></div>
+    </nav>
+
+    <main class="main">
+
+      <!-- ===== POS ===== -->
+      <section class="view view-pos" id="view-pos" hidden>
+        <div class="pos">
+          <div class="pos-left">
+            <div class="pos-ctx" id="posCtx"></div>
+            <div class="pos-tools">
+              <input id="posSearch" class="search" type="search" placeholder="Cari menu…" autocomplete="off">
+              <button class="btn ghost" id="posRefresh" type="button" title="Muat ulang menu">↻</button>
+            </div>
+            <div class="cat-bar" id="catBar"></div>
+            <div class="product-grid" id="productGrid"></div>
+          </div>
+
+          <aside class="pos-cart" id="cartPanel">
+            <div class="cart-head">
+              <h3 id="cartTitle">Pesanan</h3>
+              <button class="btn ghost small" id="cartClear" type="button">Kosongkan</button>
+              <button class="icon-btn cart-close" id="cartClose" type="button" aria-label="Tutup">✕</button>
+            </div>
+            <div class="pay-banner" id="payBanner" hidden></div>
+            <div class="cart-items" id="cartItems"></div>
+            <div class="cart-foot">
+              <div class="sum-row"><span>Subtotal</span><span id="sumSubtotal">Rp 0</span></div>
+              <div class="sum-row" id="itemDiscRow" hidden><span>Diskon item</span><span id="sumItemDisc">-Rp 0</span></div>
+              <div class="sum-row disc-row" id="discountRow">
+                <span>Diskon bill</span>
+                <div class="disc-input">
+                  <div class="seg" id="billDiscType"><button type="button" data-t="AMT" class="active">Rp</button><button type="button" data-t="PCT">%</button></div>
+                  <input id="discountInput" class="small-input disc-value" inputmode="decimal" placeholder="0" autocomplete="off">
+                </div>
+              </div>
+              <div class="sum-row sub-note" id="billDiscNote" hidden><span></span><span id="sumBillDisc">-Rp 0</span></div>
+              <div class="sum-row" id="serviceRow">
+                <label class="switch-label" for="serviceToggle"><input type="checkbox" id="serviceToggle"><span id="serviceName">Service</span></label>
+                <span id="sumService">Rp 0</span>
+              </div>
+              <div class="sum-row" id="taxRow">
+                <label class="switch-label" for="taxToggle"><input type="checkbox" id="taxToggle"><span id="taxName">PB1</span></label>
+                <span id="sumTax">Rp 0</span>
+              </div>
+              <div class="sum-row" id="roundRow" hidden><span>Pembulatan (tunai)</span><span id="sumRound">Rp 0</span></div>
+              <div class="sum-row total"><span>TOTAL</span><span id="sumTotal">Rp 0</span></div>
+
+              <div class="shift-warn" id="shiftWarn" hidden>
+                <span>⚠ Shift kas belum dibuka. Hitung modal awal dulu sebelum menerima pembayaran.</span>
+                <button class="btn small" id="shiftWarnBtn" type="button">Buka shift</button>
+              </div>
+
+              <div id="payArea">
+                <div class="label-row"><span class="label">Metode pembayaran</span>
+                  <button class="link-btn small" id="equalBtn" type="button">Split / bagi rata ÷</button></div>
+                <div class="pay-methods" id="payMethods"></div>
+                <div class="parts" id="splitParts" hidden></div>
+
+                <div class="cash-box" id="cashBox">
+                  <div class="label">Uang diterima</div>
+                  <input id="cashInput" class="money-input big-input" inputmode="numeric" placeholder="0" autocomplete="off">
+                  <div class="quick-cash" id="quickCash"></div>
+                  <div class="sum-row change"><span>Kembalian</span><span id="changeAmt">Rp 0</span></div>
+                </div>
+              </div>
+
+              <p class="error" id="posError" hidden></p>
+              <div class="cart-actions">
+                <button class="btn big secondary" id="saveTableBtn" type="button" hidden>SIMPAN KE MEJA</button>
+                <button class="btn primary big complete-btn" id="completeBtn" type="button">BAYAR</button>
+              </div>
+            </div>
+          </aside>
+
+          <button class="cart-bar" id="cartBar" type="button">
+            <span id="cartBarCount">0 item</span>
+            <span id="cartBarTotal">Rp 0</span>
+            <span class="cart-bar-cta">Lihat pesanan ›</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ===== TABLES ===== -->
+      <section class="view" id="view-tables" hidden>
+        <div class="page">
+          <div class="floor-top">
+            <div class="filter-bar" id="areaBar"></div>
+            <div class="tools-right" id="floorTools">
+              <button class="btn small" id="floorRefresh" type="button" title="Muat ulang">↻</button>
+              <button class="btn small" id="floorTakeaway" type="button">Pesanan takeaway</button>
+              <button class="btn small primary" id="floorEdit" type="button" hidden>Ubah denah</button>
+            </div>
+          </div>
+          <div class="edit-bar" id="editBar" hidden>
+            <span class="small">Geser meja untuk memindahkan. Ketuk meja untuk ganti nama, ukuran, atau menghapusnya.</span>
+            <div class="tools-right">
+              <button class="btn small" id="editAdd" type="button">+ Tambah meja</button>
+              <button class="btn small" id="editCancel" type="button">Batal</button>
+              <button class="btn small primary" id="editSave" type="button">Simpan denah</button>
+            </div>
+          </div>
+          <div class="floor-wrap"><div class="floor" id="floor"></div></div>
+          <div class="floor-legend"><span><i class="lg free"></i>Kosong</span><span><i class="lg busy"></i>Ada bill</span></div>
+          <div class="list-summary" id="floorSummary"></div>
+        </div>
+      </section>
+
+      <!-- ===== SALES HISTORY ===== -->
+      <section class="view" id="view-history" hidden>
+        <div class="page">
+          <div class="filter-bar" id="histFilters"></div>
+          <div class="custom-range" id="histCustom" hidden>
+            <input type="date" class="rf-from"><span>s/d</span><input type="date" class="rf-to">
+            <button class="btn small rf-apply" type="button">Tampilkan</button>
+          </div>
+          <div class="list-summary" id="histSummary"></div>
+          <div class="tx-list" id="histList"></div>
+        </div>
+      </section>
+
+      <!-- ===== DASHBOARD ===== -->
+      <section class="view" id="view-dashboard" hidden>
+        <div class="page">
+          <div class="filter-bar" id="dashFilters"></div>
+          <div class="custom-range" id="dashCustom" hidden>
+            <input type="date" class="rf-from"><span>s/d</span><input type="date" class="rf-to">
+            <button class="btn small rf-apply" type="button">Tampilkan</button>
+          </div>
+          <div class="list-summary" id="dashRange"></div>
+          <div class="kpis">
+            <div class="kpi"><div class="kpi-label">Penjualan</div><div class="kpi-value" id="kpiSales">–</div></div>
+            <div class="kpi"><div class="kpi-label">Transaksi</div><div class="kpi-value" id="kpiCount">–</div></div>
+            <div class="kpi"><div class="kpi-label">Rata-rata</div><div class="kpi-value" id="kpiAvg">–</div></div>
+          </div>
+          <div class="list-summary" id="dashExtra"></div>
+          <div class="kpis" id="dashProfit" hidden>
+            <div class="kpi"><div class="kpi-label">Penjualan bersih</div><div class="kpi-value" id="kpiNet">–</div></div>
+            <div class="kpi"><div class="kpi-label">HPP</div><div class="kpi-value" id="kpiCogs">–</div></div>
+            <div class="kpi"><div class="kpi-label">Laba kotor</div><div class="kpi-value" id="kpiGp">–</div></div>
+          </div>
+          <div class="card" id="dashTrendCard" hidden style="margin-bottom:10px"><h3>Penjualan bersih & laba kotor per hari</h3><div id="dashTrend"></div></div>
+          <div class="grid-2">
+            <div class="card"><h3>Penjualan per metode bayar</h3><div id="dashMethods"></div></div>
+            <div class="card"><h3>Produk terlaris</h3><div id="dashTop"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== PRODUCTS ===== -->
+      <section class="view" id="view-products" hidden>
+        <div class="page">
+          <div class="toolbar">
+            <input id="prodSearch" class="search" type="search" placeholder="Cari produk…" autocomplete="off">
+            <button class="btn primary" id="prodAdd" type="button" hidden>+ Tambah</button>
+          </div>
+          <p class="muted small" id="prodNote"></p>
+          <div class="table-list" id="prodList"></div>
+        </div>
+      </section>
+
+      <!-- ===== USERS ===== -->
+      <section class="view" id="view-users" hidden>
+        <div class="page">
+          <div class="toolbar">
+            <div class="muted small">Staf masuk dengan username + PIN. Anda juga bisa menambah pengguna atau mengetik PIN baru di sheet Users (kolom New_PIN).</div>
+            <button class="btn primary" id="userAdd" type="button">+ Tambah pengguna</button>
+          </div>
+          <div class="table-list" id="userList"></div>
+        </div>
+      </section>
+
+      <!-- ===== SETTINGS ===== -->
+      <section class="view" id="view-settings" hidden>
+        <div class="page">
+          <div class="card update-card" id="updateCard"></div>
+          <div class="table-list" id="settingsList"></div>
+        </div>
+      </section>
+
+      <!-- ===== Phase 2-4 screens are drawn here by InventoryJs / PurchasingJs / ReportsJs ===== -->
+      <section class="view" id="view-module" hidden>
+        <div class="page" id="moduleBody"></div>
+      </section>
+
+      <!-- ===== PLANNED (not built yet) ===== -->
+      <section class="view" id="view-planned" hidden>
+        <div class="page">
+          <div class="card planned-card">
+            <span class="badge big-badge" id="plannedPhase"></span>
+            <h2 id="plannedTitle"></h2>
+            <p id="plannedAbout"></p>
+            <p class="muted">Modul ini <b>belum dibuat</b> dan direncanakan untuk tahap berikutnya. Role Anda sudah punya akses, jadi modul ini akan muncul di sini otomatis saat sudah siap.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== HOME (roles with no ready modules yet) ===== -->
+      <section class="view" id="view-home" hidden>
+        <div class="page">
+          <div class="card planned-card">
+            <h2 id="homeTitle"></h2>
+            <p>Modul untuk role Anda direncanakan di tahap berikutnya dan <b>belum dibuat</b>:</p>
+            <ul id="homeList"></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ================= RECEIPT MODAL ================= -->
+  <div class="modal" id="receiptModal" hidden>
+    <div class="modal-card receipt-card">
+      <div class="modal-head">
+        <h3 id="receiptTitle">Struk</h3>
+        <button class="icon-btn" id="receiptCloseX" type="button" aria-label="Tutup">✕</button>
+      </div>
+      <div class="success-banner" id="receiptSuccess" hidden>✓ Tersimpan</div>
+      <div class="receipt-wrap"><div class="receipt" id="receiptBody"></div></div>
+      <div id="receiptTextWrap" hidden>
+        <p class="muted small">Pilih semua teks di bawah lalu salin (di HP: tekan lama).</p>
+        <textarea id="receiptText" class="receipt-text" readonly></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn danger-ghost" id="receiptVoid" type="button" hidden>Void</button>
+        <button class="btn" id="receiptPrint" type="button">Print</button>
+        <button class="btn" id="receiptCopy" type="button">Salin teks</button>
+        <button class="btn primary" id="receiptDone" type="button">Pesanan Baru</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= FORM MODAL ================= -->
+  <div class="modal" id="formModal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="formTitle"></h3>
+        <button class="icon-btn" id="formCloseX" type="button" aria-label="Tutup">✕</button>
+      </div>
+      <form id="formBody" class="form" onsubmit="return false"></form>
+      <p class="error" id="formError" hidden></p>
+      <div class="modal-actions">
+        <button class="btn" id="formCancel" type="button">Batal</button>
+        <button class="btn primary" id="formSubmit" type="button">Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Only this is printed -->
+  <div id="printArea" class="print-area"></div>
+
+  <?!= include('AppJs'); ?>
+  <?!= include('PosJs'); ?>
+  <?!= include('TablesJs'); ?>
+  <?!= include('HistoryJs'); ?>
+  <?!= include('AdminJs'); ?>
+  <?!= include('InventoryJs'); ?>
+  <?!= include('PurchasingJs'); ?>
+  <?!= include('ReportsJs'); ?>
+  <?!= include('ShiftJs'); ?>
+  <?!= include('KitchenJs'); ?>
+</body>
+</html>

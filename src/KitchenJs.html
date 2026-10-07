@@ -1,0 +1,122 @@
+<script>
+/* ================= KitchenJs: Layar Dapur / Layar Bar (order tickets) ================= */
+
+const Kit = { station: null, data: null, tab: 'open', timer: null, lastIds: null, offset: 0, loading: false };
+const KIT_NAMES = { FOOD: 'Dapur', BAR: 'Bar' };
+
+App.resetHooks.push(function () { Kit.station = null; Kit.data = null; Kit.lastIds = null; });
+
+Views.kitchen = function () { kitShow('FOOD'); };
+Views.bar_orders = function () { kitShow('BAR'); };
+
+function kitShow(station) {
+  if (Kit.station !== station) { Kit.lastIds = null; Kit.tab = 'open'; Kit.data = null; }
+  Kit.station = station;
+  Mod.render('<div class="kit-top"><div class="filter-bar" id="kitTabs"></div>' +
+    '<div class="tools-right"><span class="small muted" id="kitStamp"></span><button class="btn small" type="button" data-act="reload">↻</button></div></div>' +
+    '<div class="kds" id="kitBody"><div class="empty">Memuat…</div></div>');
+  Mod.on({
+    reload: function () { kitLoad(false); },
+    tab: function (el) { Kit.tab = el.dataset.t; kitRender(); },
+    done: function (el) { kitDone(el.dataset.id, false); },
+    undo: function (el) { kitDone(el.dataset.id, true); }
+  });
+  kitLoad(false);
+  if (!Kit.timer) {
+    Kit.timer = setInterval(function () {
+      if ((App.view === 'kitchen' || App.view === 'bar_orders') && !document.hidden && App.token) kitLoad(true);
+      else if (App.view !== 'kitchen' && App.view !== 'bar_orders') { clearInterval(Kit.timer); Kit.timer = null; }
+    }, 15000);
+  }
+}
+
+async function kitLoad(silent) {
+  if (Kit.loading) return;
+  Kit.loading = true;
+  const station = Kit.station;
+  try {
+    const d = await api('apiGetKitchen', App.token, station);
+    if (station !== Kit.station || !$('kitBody')) return;
+    Kit.offset = Date.now() - d.serverNow;
+    const ids = d.open.map(function (t) { return t.id; });
+    if (Kit.lastIds && ids.some(function (id) { return Kit.lastIds.indexOf(id) < 0; })) kitBeep();
+    Kit.lastIds = ids;
+    Kit.data = d;
+    kitRender();
+  } catch (e) {
+    if (!silent && $('kitBody')) $('kitBody').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
+  } finally {
+    Kit.loading = false;
+  }
+}
+
+/** A short "ding" when a new ticket arrives (works after the first tap on the screen). */
+function kitBeep() {
+  try {
+    const C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return;
+    Kit.audio = Kit.audio || new C();
+    const ctx = Kit.audio, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = 880;
+    g.gain.setValueAtTime(0.25, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.6);
+  } catch (e) {}
+}
+
+function kitAge(t) {
+  if (!t.createdMs) return { text: '', cls: '' };
+  const m = Math.max(0, Math.floor((Date.now() - Kit.offset - t.createdMs) / 60000));
+  return { text: m < 1 ? 'baru' : m + ' menit', cls: m >= 25 ? 'late' : m >= 15 ? 'slow' : '' };
+}
+
+function kitCard(t, done) {
+  const age = kitAge(t);
+  const isVoid = t.kind === 'VOID';
+  const head = '<div class="tk-head"><div><span class="tk-table">' + esc(t.table || '-') + '</span>' +
+    (t.guest ? '<span class="tk-guest">' + esc(t.guest) + '</span>' : '') + '</div>' +
+    '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ ' + esc(t.doneAt) : esc(age.text)) + '</span></div>' +
+    '<div class="tk-meta">' + (isVoid ? '<b>BATAL</b>' : (t.table === 'Takeaway' ? 'Takeaway' : 'Pesanan ' + t.round)) + ' · ' + esc(t.time) +
+    (t.by ? ' · ' + esc(t.by) : '') + '</div>';
+  const items = t.items.map(function (i) {
+    return '<div class="tk-item"><span class="tk-qty">' + i.qty + '×</span><span><b>' + esc(i.name) + '</b>' +
+      (isVoid && i.round ? ' <span class="small">(pesanan ' + i.round + ')</span>' : '') +
+      (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span></div>';
+  }).join('');
+  const reason = isVoid && t.reason ? '<div class="tk-reason">Alasan: ' + esc(t.reason) + '</div>' : '';
+  const btn = done
+    ? '<button class="btn small" type="button" data-act="undo" data-id="' + esc(t.id) + '">↶ Kembalikan ke antrian</button>'
+    : '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">' + (isVoid ? 'OK, sudah dilihat' : '✓ Selesai') + '</button>';
+  return '<div class="ticket' + (isVoid ? ' void' : '') + (done ? ' done' : '') + '">' + head + '<div class="tk-items">' + items + '</div>' + reason + btn + '</div>';
+}
+
+function kitRender() {
+  const d = Kit.data;
+  if (!d || !$('kitBody')) return;
+  $('kitTabs').innerHTML = '<button class="chip' + (Kit.tab === 'open' ? ' active' : '') + '" type="button" data-act="tab" data-t="open">Antrian (' + d.open.length + ')</button>' +
+    '<button class="chip' + (Kit.tab === 'done' ? ' active' : '') + '" type="button" data-act="tab" data-t="done">Selesai hari ini (' + d.done.length + ')</button>';
+  const now = new Date();
+  $('kitStamp').textContent = KIT_NAMES[d.station] + ' · diperbarui ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  const list = Kit.tab === 'open' ? d.open : d.done;
+  $('kitBody').innerHTML = list.length ? list.map(function (t) { return kitCard(t, Kit.tab === 'done'); }).join('')
+    : '<div class="empty">' + (Kit.tab === 'open' ? 'Belum ada pesanan. Layar ini memuat ulang sendiri setiap 15 detik.' : 'Belum ada yang selesai hari ini.') + '</div>';
+}
+
+async function kitDone(id, undo) {
+  try {
+    await api('apiKitchenDone', App.token, id, Kit.station, undo);
+    const from = undo ? Kit.data.done : Kit.data.open;
+    const t = from.filter(function (x) { return x.id === id; })[0];
+    if (t) {                       // update the screen right away, then refresh from the server
+      if (undo) { Kit.data.done = Kit.data.done.filter(function (x) { return x !== t; }); Kit.data.open.push(t); }
+      else { Kit.data.open = Kit.data.open.filter(function (x) { return x !== t; }); t.doneAt = new Date().toTimeString().slice(0, 5); Kit.data.done.unshift(t); }
+      Kit.lastIds = Kit.data.open.map(function (x) { return x.id; });
+      kitRender();
+    }
+    kitLoad(true);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+</script>

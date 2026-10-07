@@ -1,0 +1,293 @@
+<script>
+/* ================= AdminJs: Products, Users, Settings ================= */
+
+const Prod = { list: [], categories: [], canEdit: false, canSeeCost: false, search: '' };
+const GROUP_LABELS = { FOOD: 'Makanan (Chef)', BEVERAGE: 'Minuman (Barista)', NONE: 'Tanpa resep' };
+
+Views.products = async function () {
+  $('prodList').innerHTML = '<div class="empty">Memuat…</div>';
+  try {
+    const d = await api('apiGetProducts', App.token);
+    Prod.list = d.products;
+    Prod.categories = d.categories;
+    Prod.canEdit = d.canEdit;
+    Prod.canSeeCost = d.canSeeCost;
+    $('prodAdd').hidden = !d.canEdit;
+    $('prodNote').textContent = d.canEdit
+      ? 'Ketuk produk untuk mengubah. Perubahan harga tercatat di sheet Audit_Log. Harga pokok otomatis dari resep (kalau produk punya resep).'
+      : 'Hanya bisa dilihat.';
+    prodRender();
+  } catch (e) {
+    $('prodList').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
+  }
+};
+
+function prodRender() {
+  const q = Prod.search.trim().toLowerCase();
+  const list = Prod.list.filter(function (p) {
+    return !q || p.name.toLowerCase().indexOf(q) >= 0 || p.category.toLowerCase().indexOf(q) >= 0 || p.id.toLowerCase().indexOf(q) >= 0;
+  });
+  $('prodList').innerHTML = list.length ? list.map(function (p) {
+    const cost = Prod.canSeeCost && p.cost !== null && p.cost !== undefined ? ' · HPP ' + rp(p.cost) : '';
+    return '<div class="row-item' + (p.active ? '' : ' inactive') + '" data-id="' + esc(p.id) + '"' + (Prod.canEdit ? ' style="cursor:pointer"' : '') + '>' +
+      (p.image ? '<img class="thumb" src="' + esc(p.image) + '" alt="" loading="lazy">' : '<span class="thumb"></span>') +
+      '<div class="row-main"><div class="row-title">' + esc(p.name) + '</div>' +
+      '<div class="row-sub">' + esc(p.id) + ' · ' + esc(p.category) + cost + (p.active ? '' : ' · <b>tidak tampil di kasir</b>') + '</div></div>' +
+      '<div class="row-right">' + (p.price === null ? '—' : rp(p.price)) + '</div></div>';
+  }).join('') : '<div class="empty">Belum ada produk.</div>';
+}
+
+function prodEdit(p) {
+  openForm({
+    title: p ? 'Ubah ' + p.id : 'Tambah produk',
+    fields: [
+      { name: 'name', label: 'Nama produk', value: p ? p.name : '' },
+      { name: 'category', label: 'Kategori', value: p ? p.category : '', datalist: Prod.categories, help: 'Pilih kategori yang ada atau ketik kategori baru.' },
+      { name: 'price', label: 'Harga jual (Rp)', type: 'money', value: p ? p.price : '' },
+      { name: 'cost', label: 'Harga pokok / HPP (Rp)', type: 'money', value: p ? p.cost : '', help: 'Kalau produk punya resep, angka ini diisi otomatis dari resep.' },
+      { name: 'recipeGroup', label: 'Grup resep', type: 'select', value: p ? p.recipeGroup : 'FOOD',
+        options: Object.keys(GROUP_LABELS).map(function (k) { return { value: k, label: GROUP_LABELS[k] }; }),
+        help: 'Menentukan resepnya diatur oleh Chef atau Barista.' },
+      { name: 'active', label: 'Aktif (tampil di kasir)', type: 'checkbox', value: p ? p.active : true },
+      { name: 'photo', label: 'Foto', type: 'image', value: p ? p.image : '',
+        help: 'Ambil foto atau pilih dari galeri. Ukurannya otomatis diperkecil dan disimpan di Google Drive Anda.' }
+    ],
+    onSubmit: async function (v) {
+      if (v.price === null) throw new Error('Isi harga jual.');
+      if (v.price === 0 && !confirm('Harga jual Rp 0. Tetap simpan?')) throw new Error('Tidak disimpan.');
+      v.cost = v.cost || 0;
+      v.id = p ? p.id : '';
+      const photo = v.photo;
+      delete v.photo;
+      const saved = await api('apiSaveProduct', App.token, v);
+      if (photo.dataUrl) {
+        showLoading(true, 'Mengunggah foto…');
+        try { await api('apiSetProductImage', App.token, saved.id, photo.dataUrl); }
+        catch (e) { toast('Produk tersimpan, tapi foto gagal: ' + e.message, 'err'); }
+        finally { showLoading(false); }
+      } else if (photo.remove) {
+        await api('apiSetProductImage', App.token, saved.id, '');
+      }
+      toast('Produk tersimpan');
+      Pos.loaded = false; // POS will reload the menu next time it opens
+      Views.products();
+    }
+  });
+}
+
+/* ---------------- Users ---------------- */
+const Usr = { list: [], roles: [] };
+const ROLE_HELP = {
+  ADMIN: 'Akses penuh', OWNER: 'Laporan, notifikasi & terima setor', CASHIER: 'Kasir, meja, pembayaran & kas shift',
+  SERVER: 'Ambil pesanan di meja (tanpa pembayaran)', CHEF: 'Layar dapur, resep, HPP & stok dapur',
+  BARISTA: 'Layar bar, resep, HPP & stok bar', PURCHASING: 'Supplier, PO & penerimaan barang'
+};
+
+Views.users = async function () {
+  $('userList').innerHTML = '<div class="empty">Memuat…</div>';
+  try {
+    const d = await api('apiListUsers', App.token);
+    Usr.list = d.users;
+    Usr.roles = d.roles;
+    $('userList').innerHTML = d.users.map(function (u) {
+      return '<div class="row-item' + (u.active ? '' : ' inactive') + '">' +
+        '<div class="row-main"><div class="row-title">' + esc(u.name) + '</div>' +
+        '<div class="row-sub">@' + esc(u.username) + ' · <b>' + esc(roleLabel(u.role)) + '</b>' + (u.active ? '' : ' · nonaktif') + (u.hasPin ? '' : ' · belum ada PIN') + '</div></div>' +
+        '<div class="row-actions"><button class="btn small" type="button" data-edit="' + esc(u.id) + '">Ubah</button>' +
+        '<button class="btn small" type="button" data-pin="' + esc(u.id) + '">PIN</button></div></div>';
+    }).join('');
+  } catch (e) {
+    $('userList').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
+  }
+};
+
+function roleOptions() {
+  return Usr.roles.map(function (r) { return { value: r, label: roleLabel(r) + ' — ' + (ROLE_HELP[r] || '') }; });
+}
+
+function userAdd() {
+  openForm({
+    title: 'Tambah pengguna',
+    fields: [
+      { name: 'name', label: 'Nama lengkap' },
+      { name: 'username', label: 'Username', help: 'Huruf kecil, tanpa spasi. Contoh: kasir1' },
+      { name: 'role', label: 'Role', type: 'select', options: roleOptions(), value: 'CASHIER' },
+      { name: 'pin', label: 'PIN (4–8 angka)', type: 'pin' }
+    ],
+    onSubmit: async function (v) {
+      await api('apiSaveUser', App.token, v);
+      toast('Pengguna ditambahkan');
+      Views.users();
+    }
+  });
+}
+
+function userEdit(u) {
+  openForm({
+    title: 'Ubah ' + u.name,
+    fields: [
+      { name: 'name', label: 'Nama lengkap', value: u.name },
+      { name: 'username', label: 'Username', value: u.username, readonly: true, help: 'Username tidak bisa diubah.' },
+      { name: 'role', label: 'Role', type: 'select', options: roleOptions(), value: u.role },
+      { name: 'active', label: 'Aktif (bisa login)', type: 'checkbox', value: u.active }
+    ],
+    onSubmit: async function (v) {
+      v.id = u.id;
+      await api('apiSaveUser', App.token, v);
+      toast('Pengguna diperbarui');
+      Views.users();
+    }
+  });
+}
+
+function userPin(u) {
+  openForm({
+    title: 'PIN baru untuk ' + u.name,
+    submitLabel: 'Simpan PIN',
+    fields: [
+      { name: 'pin', label: 'PIN baru (4–8 angka)', type: 'pin' },
+      { name: 'pin2', label: 'Ketik PIN sekali lagi', type: 'pin' }
+    ],
+    onSubmit: async function (v) {
+      if (v.pin !== v.pin2) throw new Error('Kedua PIN berbeda.');
+      await api('apiResetUserPin', App.token, u.id, v.pin);
+      toast('PIN diganti');
+      Views.users();
+    }
+  });
+}
+
+/* ---------------- Settings ---------------- */
+const YES_NO = [['TRUE', 'Ya'], ['FALSE', 'Tidak']];
+const SETTING_CHOICES = {
+  Allow_Discount: YES_NO, Service_On_Takeaway: YES_NO, Tax_On_Takeaway: YES_NO, Show_Product_Images: YES_NO, Deduct_Stock_On_Sale: YES_NO,
+  Require_Shift: YES_NO,
+  Cash_Rounding_Mode: [['NEAREST', 'Ke ribuan terdekat'], ['DOWN', 'Selalu ke bawah'], ['UP', 'Selalu ke atas']],
+  Costing_Method: [['AVERAGE', 'Rata-rata tertimbang'], ['LAST', 'Harga beli terakhir']],
+  Receipt_Width_mm: [['58', '58 mm'], ['80', '80 mm']]
+};
+/* ---------- Update aplikasi (admin, works from a phone) ---------- */
+const Upd = { info: null };
+
+function updRender(msg) {
+  const i = Upd.info;
+  let html = '<div class="upd-head"><div><h3>Versi aplikasi</h3><div class="small muted">JayaPOS v' + esc(App.version || '') + '</div></div>' +
+    '<button class="btn small" type="button" data-u="check">Cek update</button></div>';
+  if (msg) html += '<p class="small">' + msg + '</p>';
+  if (i) {
+    if (i.newer) {
+      html += '<div class="upd-new"><b>Versi baru ' + esc(i.latest) + ' tersedia</b>' +
+        (i.notes ? '<div class="small">' + esc(i.notes) + '</div>' : '') +
+        '<div class="small muted">Sumber: ' + esc(i.source) + '</div>' +
+        '<button class="btn primary" type="button" data-u="install">Update sekarang</button></div>';
+    } else {
+      html += '<p class="small">✓ Sudah versi terbaru' + (i.latest ? ' (' + esc(i.latest) + ' di ' + esc(i.source) + ')' : '') + '.</p>';
+    }
+    if (i.backups) html += '<button class="link-btn small" type="button" data-u="rollback">Kembalikan ke versi sebelumnya</button>';
+  }
+  $('updateCard').innerHTML = html;
+}
+
+async function updCheck() {
+  updRender('Memeriksa…');
+  try { Upd.info = await api('apiCheckUpdate', App.token); updRender(''); }
+  catch (e) { updRender('<span class="bad-text">' + esc(e.message) + '</span>'); }
+}
+
+async function updInstall() {
+  const i = Upd.info;
+  if (!i || !i.newer) return;
+  if (!confirm('Pasang JayaPOS ' + i.latest + ' sekarang?\n\nJangan dilakukan saat kasir sedang menerima pembayaran. Kode lama otomatis disimpan sebagai backup.')) return;
+  showLoading(true, 'Memasang update… (±30 detik)');
+  try {
+    const r = await api('apiInstallUpdate', App.token, i.latest);
+    Upd.info = null;
+    updRender('<b class="good-text">✓ JayaPOS ' + esc(r.version) + ' terpasang.</b> Tutup JayaPOS di semua HP/tablet lalu buka lagi. ' +
+      'Sheet & kolom baru dibuat otomatis saat pertama dibuka.' + (r.deployments ? '' : ' <span class="bad-text">Link web app tidak ditemukan — hubungi admin.</span>'));
+  } catch (e) {
+    updRender('<span class="bad-text">Update gagal: ' + esc(e.message) + '</span>');
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function updRollback() {
+  if (!confirm('Kembalikan JayaPOS ke versi sebelum update terakhir?')) return;
+  showLoading(true, 'Mengembalikan…');
+  try {
+    const r = await api('apiRollbackUpdate', App.token);
+    Upd.info = null;
+    updRender('<b>✓ Dikembalikan ke JayaPOS ' + esc(r.version) + '.</b> Tutup JayaPOS di semua HP lalu buka lagi.');
+  } catch (e) {
+    updRender('<span class="bad-text">' + esc(e.message) + '</span>');
+  } finally {
+    showLoading(false);
+  }
+}
+
+$('updateCard').addEventListener('click', function (e) {
+  const b = e.target.closest('[data-u]');
+  if (!b) return;
+  if (b.dataset.u === 'check') updCheck();
+  else if (b.dataset.u === 'install') updInstall();
+  else if (b.dataset.u === 'rollback') updRollback();
+});
+
+Views.settings = async function () {
+  updRender('');
+  updCheck();
+  $('settingsList').innerHTML = '<div class="empty">Memuat…</div>';
+  try {
+    const rows = await api('apiGetSettings', App.token);
+    $('settingsList').innerHTML = rows.map(function (s) {
+      const choices = SETTING_CHOICES[s.key];
+      const input = choices
+        ? '<select>' + choices.map(function (c) {
+            return '<option value="' + esc(c[0]) + '"' + (String(s.value).toUpperCase() === c[0] ? ' selected' : '') + '>' + esc(c[1]) + '</option>';
+          }).join('') + '</select>'
+        : '<input value="' + esc(s.value) + '" autocomplete="off">';
+      return '<div class="setting-row" data-key="' + esc(s.key) + '"><div class="row-title">' + esc(s.label || s.key) + '</div>' +
+        '<div class="row-sub">' + esc(s.description) + '</div>' +
+        '<div class="inline">' + input + '<button class="btn small primary" type="button">Simpan</button></div></div>';
+    }).join('');
+  } catch (e) {
+    $('settingsList').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
+  }
+};
+
+/* ---------------- Events ---------------- */
+$('prodSearch').addEventListener('input', function (e) { Prod.search = e.target.value; prodRender(); });
+$('prodAdd').addEventListener('click', function () { prodEdit(null); });
+$('prodList').addEventListener('click', function (e) {
+  if (!Prod.canEdit) return;
+  const row = e.target.closest('[data-id]');
+  if (row) prodEdit(Prod.list.filter(function (p) { return p.id === row.dataset.id; })[0]);
+});
+$('userAdd').addEventListener('click', userAdd);
+$('userList').addEventListener('click', function (e) {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const id = b.dataset.edit || b.dataset.pin;
+  const u = Usr.list.filter(function (x) { return x.id === id; })[0];
+  if (!u) return;
+  if (b.dataset.edit) userEdit(u); else userPin(u);
+});
+$('settingsList').addEventListener('click', async function (e) {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const row = b.closest('[data-key]');
+  const input = row.querySelector('input, select');
+  b.disabled = true;
+  try {
+    const r = await api('apiSaveSetting', App.token, row.dataset.key, input.value);
+    input.value = r.value;
+    App.settings[r.key] = r.value;
+    if (/^(Category_Order|Allow_Discount|Max_Discount|Service_|Tax_|Cash_Rounding|Show_Product_Images)/.test(r.key)) Pos.loaded = false;
+    toast('Tersimpan');
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    b.disabled = false;
+  }
+});
+</script>

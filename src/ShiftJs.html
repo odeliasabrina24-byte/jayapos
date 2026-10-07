@@ -1,0 +1,257 @@
+<script>
+/* ================= ShiftJs: Kas & Shift (opening count, cash in/out, setor, blind close) ================= */
+
+const Sft = { data: null };
+const MOVE_LABELS = { CASH_IN: 'Kas masuk', CASH_OUT: 'Kas keluar', SETOR: 'Setor' };
+const MOVE_STATUS = { OK: ['Tercatat', 'muted'], PENDING: ['Menunggu konfirmasi', 'warn'], RECEIVED: ['Diterima', 'good'], REJECTED: ['Ditolak', 'bad'] };
+
+Views.shift = function () { shiftLoad(); };
+
+async function shiftLoad() {
+  try {
+    Sft.data = await api('apiGetShift', App.token);
+    shiftRender();
+  } catch (e) {
+    Mod.render('<p class="error">' + esc(e.message) + '</p>');
+  }
+}
+
+function stampLabel(st) { st = String(st || ''); return st.length >= 16 ? dateLabel(st.slice(0, 10)) + ' ' + st.slice(11, 16) : st; }
+function denomLabel(d) { return d >= 1000 ? fmtNum(d) : String(d); }
+
+function moveRow(m) {
+  const st = MOVE_STATUS[m.status] || [m.status, 'muted'];
+  const sign = m.type === 'CASH_IN' ? '+' : '−';
+  return '<div class="row-item compact"><div class="row-main"><div class="row-title">' + esc(MOVE_LABELS[m.type] || m.type) +
+    ' <span class="pill ' + st[1] + '">' + esc(st[0]) + '</span></div>' +
+    '<div class="row-sub">' + esc(m.time) + ' · ' + esc(m.user) + (m.reason ? ' · ' + esc(m.reason) : '') +
+    (m.confirmedBy ? ' · ' + (m.status === 'REJECTED' ? 'ditolak' : 'diterima') + ' ' + esc(m.confirmedBy) + (m.confirmNote ? ' (' + esc(m.confirmNote) + ')' : '') : '') +
+    '</div></div><div class="row-right"><b>' + sign + rp(m.amount) + '</b></div></div>';
+}
+
+function shiftRender() {
+  const d = Sft.data;
+  const s = d.shift;
+  let html = '';
+  if (!s) {
+    html += '<div class="card shift-card closed"><h3>Shift belum dibuka</h3>' +
+      (d.lastClosed ? '<p class="small">Shift terakhir ditutup ' + esc(stampLabel(d.lastClosed.closedAt)) + ' oleh ' + esc(d.lastClosed.closedBy) +
+        '. Modal yang ditinggal di laci: <b>' + rp(d.lastClosed.leftForNext) + '</b>.</p>' : '<p class="small">Belum pernah ada shift.</p>') +
+      '<p class="small muted">Hitung semua uang di laci per pecahan sebelum menerima pembayaran pertama. ' +
+      (d.lastClosed ? 'Kalau hasilnya beda dari modal yang ditinggal, owner & admin langsung diberi tahu.' : '') + '</p>' +
+      (d.canManage ? '<button class="btn primary big" type="button" data-act="open">Buka shift · hitung modal</button>' :
+        '<p class="muted small">Kasir yang membuka shift.</p>') + '</div>';
+  } else {
+    html += '<div class="card shift-card"><div class="shift-head"><div><h3>Shift terbuka</h3><div class="small muted">' + esc(s.id) + ' · dibuka ' +
+      esc(s.openedAt.slice(11, 16)) + ' oleh ' + esc(s.openedBy) + '</div></div><span class="pill good">Buka</span></div>' +
+      '<div class="kpis">' +
+      '<div class="kpi"><div class="kpi-label">Modal awal</div><div class="kpi-value">' + rp(s.opening) + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Transaksi</div><div class="kpi-value">' + fmtNum(s.txCount) + '</div></div>' +
+      (s.expected !== undefined ? '<div class="kpi"><div class="kpi-label">Tunai seharusnya di laci</div><div class="kpi-value">' + rp(s.expected) + '</div></div>'
+        : '<div class="kpi"><div class="kpi-label">Non-tunai</div><div class="kpi-value">' + rp(s.nonCash.reduce(function (a, m) { return a + m.total; }, 0)) + '</div></div>') +
+      '</div>' +
+      (s.openingDiff ? '<p class="note-line">Modal awal ' + (s.openingDiff < 0 ? 'KURANG ' : 'LEBIH ') + rp(Math.abs(s.openingDiff)) +
+        ' dari yang ditinggal shift sebelumnya (' + rp(s.previousLeft) + '). Owner & admin sudah diberi tahu.</p>' : '') +
+      (s.drawerFull ? '<p class="note-line">⚠ Uang tunai di laci sudah banyak. Segera setor ke owner/admin.</p>' : '') +
+      (s.expected !== undefined ? '<div class="list-summary">Modal ' + rp(s.opening) + ' + penjualan tunai ' + rp(s.cashSales) + ' + kas masuk ' + rp(s.cashIn) +
+        ' − kas keluar ' + rp(s.cashOut) + ' − setor ' + rp(s.setor) + (s.setorPending ? ' (' + rp(s.setorPending) + ' belum dikonfirmasi)' : '') +
+        ' = <b>' + rp(s.expected) + '</b></div>' +
+        (s.byMethod.length ? '<div class="list-summary">Per metode: ' + s.byMethod.map(function (m) { return esc(m.label) + ' ' + rp(m.total) + ' (' + m.count + 'x)'; }).join(' · ') + '</div>' : '')
+        : (s.nonCash.length ? '<div class="list-summary">' + s.nonCash.map(function (m) { return esc(m.label) + ' ' + rp(m.total) + ' (' + m.count + 'x)'; }).join(' · ') + '</div>' : '') +
+          '<p class="small muted">Jumlah tunai yang seharusnya ada di laci tidak ditampilkan ke kasir. Saat tutup shift, hitung uangnya apa adanya.</p>') +
+      (d.canManage ? '<div class="shift-actions">' +
+        '<button class="btn" type="button" data-act="move" data-t="CASH_IN">+ Kas masuk</button>' +
+        '<button class="btn" type="button" data-act="move" data-t="CASH_OUT">− Kas keluar</button>' +
+        '<button class="btn" type="button" data-act="move" data-t="SETOR">Setor ke owner</button>' +
+        '<button class="btn primary" type="button" data-act="close">Tutup shift</button></div>' : '') +
+      '</div>';
+    html += '<h3 class="sec-title">Kas masuk / keluar / setor shift ini</h3><div class="table-list">' +
+      (s.moves.length ? s.moves.map(moveRow).join('') : '<div class="empty">Belum ada.</div>') + '</div>';
+  }
+
+  if (d.canConfirm) {
+    html += '<h3 class="sec-title">Setor menunggu konfirmasi</h3><p class="small muted">Konfirmasi hanya setelah uangnya benar-benar Anda terima dan hitung.</p><div class="table-list">' +
+      (d.pending.length ? d.pending.map(function (m) {
+        return '<div class="row-item"><div class="row-main"><div class="row-title">' + rp(m.amount) + '</div><div class="row-sub">' +
+          esc(stampLabel(m.when)) + ' · dari ' + esc(m.user) + ' · ' + esc(m.reason) + ' · ' + esc(m.shiftId) + '</div></div>' +
+          '<div class="row-right">' + (m.mine ? '<span class="small muted">Harus dikonfirmasi orang lain</span>' :
+            '<button class="btn small primary" type="button" data-act="accept" data-id="' + esc(m.id) + '">Terima</button> ' +
+            '<button class="btn small danger-ghost" type="button" data-act="reject" data-id="' + esc(m.id) + '">Tolak</button>') + '</div></div>';
+      }).join('') : '<div class="empty">Tidak ada setor yang menunggu.</div>') + '</div>';
+  }
+
+  if (d.canView) {
+    html += '<h3 class="sec-title">Riwayat shift</h3>' + dataTable([
+      { label: 'Ditutup', fn: function (x) { return esc(stampLabel(x.closedAt)); } },
+      { label: 'Kasir', fn: function (x) { return esc(x.openedBy) + (x.closedBy && x.closedBy !== x.openedBy ? ' / ' + esc(x.closedBy) : ''); } },
+      { label: 'Modal', fn: function (x) { return rp(x.opening) + (x.openingDiff ? ' <span class="pill bad">' + rpSigned(x.openingDiff) + '</span>' : ''); }, num: true },
+      { label: 'Seharusnya', fn: function (x) { return rp(x.expected); }, num: true },
+      { label: 'Dihitung', fn: function (x) { return rp(x.counted); }, num: true },
+      { label: 'Selisih', fn: function (x) { return '<span class="pill ' + (Math.abs(x.difference) > d.tolerance ? 'bad' : 'good') + '">' + rpSigned(x.difference) + '</span>'; }, num: true },
+      { label: 'Setor', fn: function (x) { return rp(x.finalSetor); }, num: true },
+      { label: '', fn: function (x) { return '<button class="link-btn small" type="button" data-act="detail" data-id="' + esc(x.id) + '">Detail</button>'; } }
+    ], d.history, 'Belum ada shift yang ditutup.');
+  }
+  Mod.render(html);
+  Mod.on({
+    open: function () { shiftCount('open'); },
+    close: function () { shiftCount('close'); },
+    move: function (el) { shiftMove(el.dataset.t); },
+    accept: function (el) { shiftConfirm(el.dataset.id, true); },
+    reject: function (el) { shiftConfirm(el.dataset.id, false); },
+    detail: function (el) { shiftDetail(el.dataset.id); }
+  });
+}
+
+/** Denomination count form for opening / closing. */
+function shiftCount(kind) {
+  const d = Sft.data;
+  const isClose = kind === 'close';
+  const html = '<p class="small">' + (isClose
+      ? 'Hitung SEMUA uang tunai di laci sekarang, per pecahan. Jangan menebak — tulis apa adanya. Sistem akan membandingkan dengan catatan penjualan.'
+      : 'Hitung semua uang di laci per pecahan (isi jumlah lembar / keping).') + '</p>' +
+    (isClose && d.openBills ? '<p class="note-line">Masih ada ' + d.openBills + ' meja dengan bill terbuka. Boleh tetap tutup shift; bill itu nanti dibayar di shift berikutnya.</p>' : '') +
+    '<div class="denoms">' + d.denoms.map(function (n) {
+      return '<label class="denom"><span>Rp ' + denomLabel(n) + (n <= 1000 && n !== 1000 ? ' <i>koin</i>' : '') + '</span>' +
+        '<input type="number" inputmode="numeric" min="0" step="1" data-d="' + n + '" placeholder="0"><b data-sub="' + n + '">Rp 0</b></label>';
+    }).join('') + '</div>' +
+    '<div class="sum-row total"><span>Total dihitung</span><span id="cntTotal">Rp 0</span></div>' +
+    (isClose ? '<label class="field"><span>Modal ditinggal di laci untuk shift berikutnya</span><input id="cntLeave" class="money-input" inputmode="numeric" autocomplete="off" value="' +
+      fmtNum(Math.min(500000, d.shift ? d.shift.opening : 0)) + '"><span class="help">Sisanya disetor ke owner/admin (menunggu konfirmasi).</span></label>' +
+      '<div class="sum-row"><span>Setor</span><b id="cntSetor">Rp 0</b></div>' : '') +
+    '<label class="field"><span>Catatan (opsional)</span><input id="cntNote" maxlength="150" autocomplete="off"></label>';
+  const total = function () {
+    let t = 0;
+    document.querySelectorAll('.denoms input[data-d]').forEach(function (i) {
+      const n = Math.max(0, parseInt(i.value, 10) || 0);
+      t += n * Number(i.dataset.d);
+      document.querySelector('[data-sub="' + i.dataset.d + '"]').textContent = rp(n * Number(i.dataset.d));
+    });
+    return t;
+  };
+  const paint = function () {
+    const t = total();
+    $('cntTotal').textContent = rp(t);
+    if (isClose) $('cntSetor').textContent = rp(Math.max(0, t - parseMoney($('cntLeave').value)));
+  };
+  openCustom({
+    title: isClose ? 'Tutup shift · hitung uang di laci' : 'Buka shift · hitung modal awal', html: html,
+    submitLabel: isClose ? 'Tutup shift' : 'Buka shift',
+    onOpen: function (body) { paint(); body.oninput = paint; },
+    onSubmit: async function () {
+      const count = {};
+      document.querySelectorAll('.denoms input[data-d]').forEach(function (i) {
+        const n = parseInt(i.value, 10) || 0;
+        if (n < 0) throw new Error('Jumlah tidak boleh minus.');
+        if (n) count[i.dataset.d] = n;
+      });
+      const t = total();
+      const note = $('cntNote').value.trim();
+      if (isClose) {
+        const leave = parseMoney($('cntLeave').value);
+        if (leave > t) throw new Error('Modal yang ditinggal lebih besar dari uang yang dihitung.');
+        if (!confirm('Tutup shift dengan uang dihitung ' + rp(t) + '? Setelah ditutup tidak bisa diubah.')) throw new Error('Belum ditutup. Cek lagi hitungannya lalu tekan Tutup shift.');
+        const r = await api('apiCloseShift', App.token, { count: count, leave: leave, note: note });
+        Sft.data = r;
+        shiftRender();
+        if (typeof Pos !== 'undefined') Pos.shift.open = false;
+        setTimeout(function () { shiftResult(r.closed); }, 60);   // after this form has closed
+      } else {
+        if (!t && !confirm('Modal awal Rp 0 (laci kosong)?')) throw new Error('Isi hitungan uang di laci.');
+        Sft.data = await api('apiOpenShift', App.token, { count: count, note: note });
+        if (typeof Pos !== 'undefined') Pos.shift.open = true;
+        shiftRender();
+        toast(Sft.data.shift.openingDiff ? 'Shift dibuka. Modal awal beda dari shift sebelumnya — owner & admin diberi tahu.' : 'Shift dibuka. Selamat bekerja!',
+          Sft.data.shift.openingDiff ? 'warn' : '');
+      }
+    }
+  });
+}
+
+function shiftResult(c) {
+  const html = '<div class="kpis"><div class="kpi"><div class="kpi-label">Seharusnya</div><div class="kpi-value">' + rp(c.expected) + '</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Dihitung</div><div class="kpi-value">' + rp(c.counted) + '</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Selisih</div><div class="kpi-value ' + (c.flagged ? 'bad-text' : '') + '">' + rpSigned(c.difference) + '</div></div></div>' +
+    '<p>' + (c.difference === 0 ? '✓ Kas cocok.' : c.difference < 0 ? 'Uang KURANG ' + rp(-c.difference) + '.' : 'Uang LEBIH ' + rp(c.difference) + '.') +
+    ' Owner & admin sudah menerima ringkasan shift ini.</p>' +
+    '<p class="small">Setor ' + rp(c.finalSetor) + ' (serahkan ke owner/admin, mereka konfirmasi di aplikasi). Modal ditinggal ' + rp(c.leave) + '.</p>';
+  openCustom({ title: 'Shift ditutup', html: html, readOnly: true });
+}
+
+function shiftMove(type) {
+  const isOut = type === 'CASH_OUT';
+  const titles = { CASH_IN: 'Kas masuk (tambah uang ke laci)', CASH_OUT: 'Kas keluar (ambil uang dari laci)', SETOR: 'Setor tunai ke owner / admin' };
+  const help = {
+    CASH_IN: 'Contoh: tambah uang kembalian dari owner.',
+    CASH_OUT: 'Contoh: beli es batu, bayar parkir. Simpan nota/struknya. Owner & admin diberi tahu.',
+    SETOR: 'Uang diserahkan ke owner/admin. Statusnya "menunggu" sampai mereka konfirmasi sudah diterima.'
+  };
+  openForm({
+    title: titles[type], submitLabel: 'Simpan',
+    fields: [{ name: 'amount', label: 'Jumlah (Rp)', type: 'money', value: '' },
+             { name: 'reason', label: isOut ? 'Untuk apa? (wajib)' : 'Catatan', value: '', help: help[type] }],
+    onSubmit: async function (v) {
+      if (!v.amount) throw new Error('Isi jumlahnya.');
+      if (isOut && v.reason.length < 3) throw new Error('Tulis untuk apa uangnya.');
+      Sft.data = await api('apiCashMove', App.token, { type: type, amount: v.amount, reason: v.reason });
+      shiftRender();
+      toast((MOVE_LABELS[type] || type) + ' ' + rp(v.amount) + ' tercatat');
+    }
+  });
+}
+
+async function shiftConfirm(id, accept) {
+  const m = Sft.data.pending.filter(function (x) { return x.id === id; })[0];
+  if (!m) return;
+  let note = '';
+  if (accept) {
+    if (!confirm('Uang ' + rp(m.amount) + ' dari ' + m.user + ' sudah Anda terima dan hitung?')) return;
+  } else {
+    note = prompt('Kenapa setor ini ditolak? (contoh: uang kurang Rp 50.000)') || '';
+    if (note.trim().length < 3) return toast('Tulis alasannya.', 'warn');
+  }
+  showLoading(true, 'Menyimpan…');
+  try {
+    Sft.data = await api('apiConfirmSetor', App.token, id, accept, note);
+    shiftRender();
+    toast(accept ? 'Setor diterima' : 'Setor ditolak');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function shiftDetail(id) {
+  showLoading(true, 'Memuat…');
+  try {
+    const s = await api('apiGetShiftDetail', App.token, id);
+    const countTable = function (c) {
+      const keys = Object.keys(c || {}).sort(function (a, b) { return b - a; });
+      return keys.length ? keys.map(function (k) { return 'Rp ' + denomLabel(Number(k)) + ' × ' + c[k]; }).join(' · ') : '-';
+    };
+    const html = '<div class="list-summary">Dibuka ' + esc(stampLabel(s.openedAt)) + ' oleh ' + esc(s.openedBy) + ' · ditutup ' + esc(stampLabel(s.closedAt)) +
+      ' oleh ' + esc(s.closedBy) + ' · ' + s.txCount + ' transaksi</div>' +
+      '<div class="sum-row"><span>Modal awal</span><b>' + rp(s.opening) + '</b></div>' +
+      (s.previousLeft !== null ? '<div class="sum-row"><span>  ditinggal shift sebelumnya</span><span>' + rp(s.previousLeft) + '</span></div>' : '') +
+      '<div class="sum-row"><span>+ Penjualan tunai</span><span>' + rp(s.cashSales) + '</span></div>' +
+      '<div class="sum-row"><span>+ Kas masuk</span><span>' + rp(s.cashIn) + '</span></div>' +
+      '<div class="sum-row"><span>− Kas keluar</span><span>' + rp(s.cashOut) + '</span></div>' +
+      '<div class="sum-row"><span>− Setor selama shift</span><span>' + rp(s.setor) + '</span></div>' +
+      '<div class="sum-row total"><span>Seharusnya</span><span>' + rp(s.expected) + '</span></div>' +
+      '<div class="sum-row"><span>Dihitung</span><b>' + rp(s.counted) + '</b></div>' +
+      '<div class="sum-row"><span>Selisih</span><b class="' + (s.difference ? 'bad-text' : '') + '">' + rpSigned(s.difference) + '</b></div>' +
+      '<div class="sum-row"><span>Setor tutup shift / modal ditinggal</span><span>' + rp(s.finalSetor) + ' / ' + rp(s.leftForNext) + '</span></div>' +
+      (s.byMethod.length ? '<p class="small"><b>Per metode:</b> ' + s.byMethod.map(function (m) { return esc(m.label) + ' ' + rp(m.total); }).join(' · ') + '</p>' : '') +
+      '<p class="small"><b>Hitungan buka:</b> ' + countTable(s.openingCount) + '</p>' +
+      '<p class="small"><b>Hitungan tutup:</b> ' + countTable(s.closingCount) + '</p>' +
+      (s.notes ? '<p class="small"><b>Catatan:</b> ' + esc(s.notes) + '</p>' : '') +
+      '<div class="table-list">' + (s.moves.length ? s.moves.map(moveRow).join('') : '') + '</div>';
+    openCustom({ title: 'Shift ' + s.id, html: html, readOnly: true });
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    showLoading(false);
+  }
+}
+</script>

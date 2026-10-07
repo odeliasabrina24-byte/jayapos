@@ -1,0 +1,1221 @@
+<script>
+/* ================= PosJs: menu, cart (rounds & notes), table bills, discounts, split bill, payment ================= */
+
+const Pos = {
+  loaded: false, products: [], byId: {}, categories: ['Semua'], cat: 'Semua', search: '',
+  // cart line: { lid, id, name, price, qty, disc, note, grp, round (0 = new, not saved yet), at, by, from, savedQty }
+  cart: [],
+  payment: 'CASH', billDisc: { type: 'AMT', value: 0 }, cash: 0, ref: null, busy: false,
+  allowDiscount: true, maxDiscountPct: 100, showImages: true, quickNotes: [], canPay: true,
+  shift: { required: false, open: true, canManage: false },
+  charges: { servicePct: 0, serviceLabel: 'Service', serviceOnTakeaway: false, taxPct: 0, taxLabel: 'PB1', taxOnTakeaway: true,
+             cashRounding: 0, roundingMode: 'NEAREST' },
+  applyService: false, applyTax: true,
+  guest: '',       // takeaway guest name
+  split: null,     // bagi rata: { parts: [{ method, cash }] }
+  payLines: null,  // split per item (table): { lid: qty }
+  ctx: null,       // table bill: { orderId, tableId, tableName, pax, guest, version, savedPax, savedGuest, savedKey, paidCount }
+  stash: null      // the takeaway order waiting while a table bill is open
+};
+const ALL_CAT = 'Semua';
+
+App.resetHooks.push(function () {
+  Pos.loaded = false; Pos.cart = []; Pos.ref = null; Pos.billDisc = { type: 'AMT', value: 0 }; Pos.cash = 0; Pos.payment = 'CASH';
+  Pos.ctx = null; Pos.stash = null; Pos.guest = ''; Pos.split = null; Pos.payLines = null;
+  $('cartPanel').classList.remove('open');
+});
+
+Views.pos = function () {
+  if (!can('pos.sell') && !Pos.ctx) {   // servers take orders on a table
+    toast('Pilih meja dulu untuk menerima pesanan.');
+    return go('tables');
+  }
+  if (!Pos.loaded) posLoad();
+  else { posRenderAll(); posCheckShift(); }
+};
+
+function newLid() {
+  let r = '';
+  try { const a = new Uint32Array(1); crypto.getRandomValues(a); r = a[0].toString(36); } catch (e) { r = Math.random().toString(36).slice(2, 8); }
+  return ('L' + Date.now().toString(36).slice(-5) + r).replace(/[^A-Za-z0-9]/g, '').slice(0, 20);
+}
+
+function draftKey() { return 'jaya_cart_' + (App.user ? App.user.id : ''); }
+
+/** Keeps the unfinished TAKEAWAY order on this phone, so a page reload does not lose it. */
+function posSaveDraft() {
+  if (Pos.ctx) return;  // table bills are saved on the server with "Simpan ke meja"
+  if (!Pos.cart.length) return store.remove(draftKey());
+  store.set(draftKey(), JSON.stringify({ cart: Pos.cart, ref: Pos.ref, billDisc: Pos.billDisc, payment: Pos.payment, cash: Pos.cash,
+                                         applyService: Pos.applyService, applyTax: Pos.applyTax, guest: Pos.guest }));
+}
+
+function posRestoreDraft() {
+  if (Pos.ctx) return false;
+  try {
+    const d = JSON.parse(store.get(draftKey()) || 'null');
+    if (!d || !Array.isArray(d.cart) || !d.cart.length) return false;
+    Pos.cart = d.cart.filter(function (l) { return l && l.id && l.qty > 0; }).map(function (l) {
+      return { lid: l.lid || newLid(), id: l.id, name: l.name, price: l.price, qty: l.qty, disc: l.disc || null, note: l.note || '',
+               grp: l.grp || '', round: 0, at: '', by: '', from: '', savedQty: 0 };
+    });
+    Pos.ref = d.ref || null;
+    Pos.billDisc = d.billDisc && d.billDisc.type ? d.billDisc : { type: 'AMT', value: 0 };
+    Pos.payment = App.paymentMethods[d.payment] ? d.payment : 'CASH';
+    Pos.cash = Number(d.cash) || 0;
+    Pos.guest = String(d.guest || '');
+    if (typeof d.applyService === 'boolean') Pos.applyService = d.applyService;
+    if (typeof d.applyTax === 'boolean') Pos.applyTax = d.applyTax;
+    if (Pos.cart.length) toast('Pesanan yang belum selesai dipulihkan.');
+    return typeof d.applyTax === 'boolean';
+  } catch (e) { return false; }
+}
+
+async function posLoad() {
+  showLoading(true, 'Memuat menu…');
+  try {
+    const d = await api('apiGetPosData', App.token);
+    const first = !Pos.loaded;
+    Pos.charges = d.charges;
+    let restoredCharges = false;
+    if (first && !Pos.ctx) {
+      Pos.applyService = d.charges.serviceOnTakeaway;
+      Pos.applyTax = d.charges.taxOnTakeaway;
+      restoredCharges = posRestoreDraft();
+    }
+    posSetProducts(d);
+    if (first && !Pos.ctx && !restoredCharges) { Pos.applyService = d.charges.serviceOnTakeaway; Pos.applyTax = d.charges.taxOnTakeaway; }
+    Pos.loaded = true;
+    posSyncInputs();
+    posRenderAll();
+  } catch (e) {
+    $('productGrid').innerHTML = '<div class="empty">' + esc(e.message) +
+      '<br><br><button class="btn" type="button" onclick="posLoad()">Coba lagi</button></div>';
+  } finally {
+    showLoading(false);
+  }
+}
+
+/** Quietly re-checks whether the cash shift is open (after coming back from "Kas & Shift"). */
+async function posCheckShift() {
+  if (!Pos.canPay || !Pos.shift.required) return;
+  try { const d = await api('apiGetPosData', App.token); Pos.shift = d.shift; posRenderCart(); } catch (e) {}
+}
+
+function posSyncInputs() {
+  const d = Pos.billDisc;
+  $('discountInput').value = d.value ? (d.type === 'AMT' ? fmtNum(d.value) : String(d.value).replace('.', ',')) : '';
+  $('cashInput').value = Pos.cash ? fmtNum(Pos.cash) : '';
+  document.querySelectorAll('#billDiscType [data-t]').forEach(function (b) { b.classList.toggle('active', b.dataset.t === d.type); });
+}
+
+/** Stores the menu and updates cart prices to the latest ones. */
+function posSetProducts(d) {
+  Pos.products = d.products;
+  Pos.allowDiscount = d.allowDiscount;
+  Pos.maxDiscountPct = d.maxDiscountPct == null ? 100 : d.maxDiscountPct;
+  Pos.showImages = d.showImages;
+  Pos.quickNotes = d.quickNotes || [];
+  Pos.canPay = d.canPay !== false;
+  Pos.shift = d.shift || { required: false, open: true, canManage: false };
+  Pos.charges = d.charges;
+  Pos.byId = {};
+  d.products.forEach(function (p) { Pos.byId[p.id] = p; });
+  const present = [];
+  d.products.forEach(function (p) { if (present.indexOf(p.category) < 0) present.push(p.category); });
+  const ordered = d.categories.filter(function (c) { return present.indexOf(c) >= 0; });
+  present.forEach(function (c) { if (ordered.indexOf(c) < 0) ordered.push(c); });
+  Pos.categories = [ALL_CAT].concat(ordered);
+  if (Pos.categories.indexOf(Pos.cat) < 0) Pos.cat = ALL_CAT;
+
+  const removed = [];
+  Pos.cart = Pos.cart.filter(function (l) {
+    const p = Pos.byId[l.id];
+    if (!p) {
+      if (l.round) return true;           // saved on the table: keep the saved price
+      removed.push(l.name);
+      return false;
+    }
+    l.name = p.name;
+    l.price = p.price;
+    l.grp = p.group || l.grp;
+    return true;
+  });
+  if (!Pos.allowDiscount) {
+    Pos.billDisc = { type: Pos.billDisc.type, value: 0 };
+    Pos.cart.forEach(function (l) { if (!Pos.ctx) l.disc = null; });
+  }
+  if (removed.length) toast('Dihapus dari pesanan (sudah tidak ada di menu): ' + removed.join(', '), 'warn');
+  posSaveDraft();
+}
+
+/** Same formula as the server (Pos.gs calcTotals_). */
+function discAmount(d, base) {
+  if (!d || !d.value) return 0;
+  return d.type === 'PCT' ? Math.round(base * d.value / 100) : d.value;
+}
+
+function cashRound(amount) {
+  const ch = Pos.charges;
+  if (!ch.cashRounding) return 0;
+  const s = ch.cashRounding;
+  const r = ch.roundingMode === 'DOWN' ? Math.floor(amount / s) * s : ch.roundingMode === 'UP' ? Math.ceil(amount / s) * s : Math.round(amount / s) * s;
+  return r - amount;
+}
+
+/** Lines that are paid now: everything, or the lines picked in "Split per item" (Rupiah discount shared by qty). */
+function posPayLines() {
+  const live = Pos.cart.filter(function (l) { return l.qty > 0; });
+  if (!Pos.payLines) return live;
+  const out = [];
+  live.forEach(function (l) {
+    const q = Math.min(l.qty, Pos.payLines[l.lid] || 0);
+    if (!q) return;
+    let disc = l.disc;
+    if (l.disc && l.disc.type === 'AMT' && q < l.qty) {
+      const part = Math.round(l.disc.value * q / l.qty);
+      disc = part > 0 ? { type: 'AMT', value: part } : null;
+    }
+    out.push({ lid: l.lid, price: l.price, qty: q, disc: disc });
+  });
+  return out;
+}
+
+function posMethods() {
+  return Pos.split ? Pos.split.parts.map(function (p) { return p.method; }) : [Pos.payment];
+}
+
+function posTotals() {
+  const ch = Pos.charges;
+  let subtotal = 0, itemDiscount = 0, items = 0, payItems = 0;
+  Pos.cart.forEach(function (l) {
+    const gross = l.price * l.qty;
+    l._disc = Math.min(gross, discAmount(l.disc, gross));
+    items += l.qty;
+  });
+  posPayLines().forEach(function (l) {
+    const gross = l.price * l.qty;
+    subtotal += gross;
+    itemDiscount += Math.min(gross, discAmount(l.disc, gross));
+    payItems += l.qty;
+  });
+  const itemsNet = subtotal - itemDiscount;
+  const billDiscount = Math.min(itemsNet, discAmount(Pos.billDisc, itemsNet));
+  const base = itemsNet - billDiscount;
+  const service = Pos.applyService && ch.servicePct > 0 ? Math.round(base * ch.servicePct / 100) : 0;
+  const tax = Pos.applyTax && ch.taxPct > 0 ? Math.round((base + service) * ch.taxPct / 100) : 0;
+  const before = base + service + tax;
+  const methods = posMethods();
+  const n = methods.length;
+  const each = Math.floor(before / n);
+  const parts = methods.map(function (m, i) {
+    const amount = i === n - 1 ? before - each * (n - 1) : each;
+    const rounding = m === 'CASH' ? cashRound(amount) : 0;
+    return { method: m, amount: amount, rounding: rounding, due: amount + rounding };
+  });
+  const rounding = parts.reduce(function (s, p) { return s + p.rounding; }, 0);
+  return { subtotal: subtotal, itemDiscount: itemDiscount, itemsNet: itemsNet, billDiscount: billDiscount,
+           discount: itemDiscount + billDiscount, service: service, tax: tax, before: before, rounding: rounding,
+           grand: before + rounding, items: items, payItems: payItems, parts: parts };
+}
+
+/* ---------- Table bill context ---------- */
+function savedKey(cart) {
+  return cart.filter(function (l) { return l.round; }).map(function (l) {
+    return l.lid + ':' + l.qty + ':' + (l.disc && l.disc.value ? l.disc.type + l.disc.value : '');
+  }).join(',');
+}
+function posNewLines() { return Pos.cart.filter(function (l) { return !l.round && l.qty > 0; }); }
+
+function posIsDirty() {
+  if (!Pos.ctx) return false;
+  return posNewLines().length > 0 || savedKey(Pos.cart) !== Pos.ctx.savedKey || Pos.ctx.pax !== Pos.ctx.savedPax ||
+    Pos.ctx.guest !== Pos.ctx.savedGuest;
+}
+
+/** Items that were saved on the table but are now fewer / gone (= void item). */
+function posRemovedItems() {
+  if (!Pos.ctx) return [];
+  return Pos.cart.filter(function (l) { return l.round && l.qty < l.savedQty; })
+    .map(function (l) { return { name: l.name, qty: l.savedQty - l.qty, round: l.round }; });
+}
+
+/** Shows a table bill on the POS. Called from the Tables screen. */
+function posEnterTable(order) {
+  if (!Pos.loaded && !Pos.ctx) posRestoreDraft();   // keep a saved takeaway order safe in the stash
+  if (!Pos.ctx) {
+    Pos.stash = { cart: Pos.cart, billDisc: Pos.billDisc, cash: Pos.cash, payment: Pos.payment, ref: Pos.ref,
+                  applyService: Pos.applyService, applyTax: Pos.applyTax, guest: Pos.guest, split: Pos.split };
+  }
+  posLoadBill(order);
+  Pos.billDisc = { type: 'AMT', value: 0 }; Pos.cash = 0; Pos.payment = 'CASH'; Pos.ref = null; Pos.split = null;
+  Pos.applyService = true;
+  Pos.applyTax = true;
+  posSyncInputs();
+  posError('');
+  go('pos');
+}
+
+function posLoadBill(order) {
+  Pos.ctx = { orderId: order.id, tableId: order.tableId, tableName: order.tableName, pax: order.pax, guest: order.guestName || '',
+              version: order.version, savedPax: order.pax, savedGuest: order.guestName || '', savedKey: '', paidCount: order.paidCount || 0 };
+  Pos.cart = (order.items || []).map(function (i) {
+    const p = Pos.byId[i.id];
+    return { lid: i.lid, id: i.id, name: p ? p.name : i.name, price: p ? p.price : i.price, qty: Number(i.qty) || 1, disc: i.disc || null,
+             note: i.note || '', grp: i.grp || (p ? p.group : ''), round: Number(i.round) || 1, at: i.at || '', by: i.by || '',
+             from: i.from || '', savedQty: Number(i.qty) || 1 };
+  });
+  Pos.payLines = null;
+  Pos.ctx.savedKey = savedKey(Pos.cart);
+}
+
+/** Leaves the table bill and brings back the takeaway order (if any). */
+function posLeaveTable() {
+  Pos.ctx = null;
+  Pos.payLines = null;
+  const s = Pos.stash || { cart: [], billDisc: { type: 'AMT', value: 0 }, cash: 0, payment: 'CASH', ref: null,
+                           applyService: Pos.charges.serviceOnTakeaway, applyTax: Pos.charges.taxOnTakeaway, guest: '', split: null };
+  Pos.cart = s.cart; Pos.billDisc = s.billDisc || { type: 'AMT', value: 0 }; Pos.cash = s.cash; Pos.payment = s.payment; Pos.ref = s.ref;
+  Pos.applyService = s.applyService;
+  Pos.applyTax = s.applyTax !== false;
+  Pos.guest = s.guest || '';
+  Pos.split = s.split || null;
+  Pos.stash = null;
+  posSyncInputs();
+  posError('');
+}
+
+function posBackToTables() {
+  if (posIsDirty() && !confirm('Perubahan di ' + Pos.ctx.tableName + ' belum disimpan. Tetap keluar tanpa menyimpan?')) return;
+  posLeaveTable();
+  $('cartPanel').classList.remove('open');
+  go('tables');
+}
+
+async function posReloadBill(msg) {
+  try {
+    const o = await api('apiGetOpenOrder', App.token, Pos.ctx.orderId);
+    posLoadBill(o);
+    posRenderAll();
+  } catch (e) {
+    posLeaveTable();
+    posRenderAll();
+  }
+  posError(msg);
+}
+
+/** Pax + guest name (table), or guest name (takeaway). */
+function posEditGuest() {
+  if (!Pos.ctx) {
+    openForm({
+      title: 'Nama tamu (takeaway)', submitLabel: 'OK',
+      fields: [{ name: 'guest', label: 'Nama tamu', value: Pos.guest, help: 'Opsional. Muncul di struk dan di layar dapur.' }],
+      onSubmit: async function (v) { Pos.guest = v.guest.slice(0, 40); posSaveDraft(); posRenderAll(); }
+    });
+    return;
+  }
+  openForm({
+    title: 'Tamu di ' + Pos.ctx.tableName,
+    submitLabel: 'OK',
+    fields: [{ name: 'pax', label: 'Total pax', type: 'number', min: 1, max: 99, value: Pos.ctx.pax },
+             { name: 'guest', label: 'Nama tamu', value: Pos.ctx.guest, help: 'Opsional, contoh: Pak Budi' }],
+    onSubmit: async function (v) {
+      if (!Number.isInteger(v.pax) || v.pax < 1 || v.pax > 99) throw new Error('Pax harus 1 sampai 99.');
+      Pos.ctx.pax = v.pax;
+      Pos.ctx.guest = v.guest.slice(0, 40);
+      posRenderAll();
+    }
+  });
+}
+
+/** "⋯" menu of a table bill. */
+function posMore() {
+  if (!Pos.ctx) return;
+  const saved = Pos.cart.some(function (l) { return l.round; });
+  const html = '<div class="action-list">' +
+    '<button class="btn" type="button" data-a="move">Pindah meja<span>Bill pindah ke meja kosong</span></button>' +
+    '<button class="btn" type="button" data-a="merge">Gabung bill<span>Ambil semua pesanan dari meja lain ke ' + esc(Pos.ctx.tableName) + '</span></button>' +
+    (Pos.canPay && saved ? '<button class="btn" type="button" data-a="split">Split bill<span>Bayar per item atau bagi rata</span></button>' : '') +
+    '<button class="btn danger-ghost" type="button" data-a="cancel">' + (saved ? 'Void bill' : 'Tutup meja') +
+    '<span>' + (saved ? 'Batalkan seluruh bill (perlu alasan)' : 'Meja kosong lagi') + '</span></button></div>';
+  openCustom({
+    title: Pos.ctx.tableName + (Pos.ctx.guest ? ' · ' + Pos.ctx.guest : ''), html: html, readOnly: true,
+    onOpen: function (body, close) {
+      body.onclick = function (e) {
+        const b = e.target.closest('[data-a]');
+        if (!b) return;
+        close();
+        const a = b.dataset.a;
+        setTimeout(function () {
+          if (a === 'move') posMoveTable();
+          else if (a === 'merge') posMerge();
+          else if (a === 'split') posSplitMenu();
+          else if (a === 'cancel') posCancelBill();
+        }, 0);
+      };
+    }
+  });
+}
+
+async function posMoveTable() {
+  if (!Pos.ctx) return;
+  if (posIsDirty()) return posError('Simpan bill dulu, baru pindah meja.');
+  let floor;
+  try { floor = await api('apiGetFloor', App.token); } catch (e) { return posError(e.message); }
+  const free = floor.tables.filter(function (t) { return !floor.open[t.id]; });
+  if (!free.length) return posError('Tidak ada meja kosong untuk pindah.');
+  openForm({
+    title: 'Pindahkan ' + Pos.ctx.tableName + ' ke…',
+    submitLabel: 'Pindahkan',
+    fields: [{ name: 'table', label: 'Meja kosong', type: 'select',
+               options: free.map(function (t) { return { value: t.id, label: t.name + ' (' + t.area + ', ' + t.seats + ' kursi)' }; }) }],
+    onSubmit: async function (v) {
+      try {
+        const o = await api('apiMoveOpenOrder', App.token, Pos.ctx.orderId, Pos.ctx.version, v.table);
+        posLoadBill(o);
+        posRenderAll();
+        toast('Dipindah ke ' + o.tableName);
+      } catch (e) {
+        if (e.code === 'STALE') { posReloadBill(e.message); return; }
+        throw e;
+      }
+    }
+  });
+}
+
+/** Gabung bill: pulls all lines of another open table into this one. */
+async function posMerge() {
+  if (!Pos.ctx) return;
+  if (posIsDirty()) return posError('Simpan bill dulu, baru gabung bill.');
+  let floor;
+  try { floor = await api('apiGetFloor', App.token); } catch (e) { return posError(e.message); }
+  const others = floor.tables.filter(function (t) { return floor.open[t.id] && floor.open[t.id].orderId !== Pos.ctx.orderId; });
+  if (!others.length) return posError('Tidak ada meja lain yang punya bill terbuka.');
+  openForm({
+    title: 'Gabung ke ' + Pos.ctx.tableName,
+    submitLabel: 'Gabungkan',
+    fields: [{ name: 'src', label: 'Ambil pesanan dari meja', type: 'select',
+               options: others.map(function (t) {
+                 const o = floor.open[t.id];
+                 return { value: o.orderId, label: t.name + (o.guest ? ' · ' + o.guest : '') + ' · ' + o.pax + ' pax · ' + o.items + ' item · ' + rp(o.subtotal) };
+               }),
+               help: 'Semua pesanan meja itu pindah ke ' + Pos.ctx.tableName + '. Meja itu jadi kosong. Pax dijumlahkan.' }],
+    onSubmit: async function (v) {
+      try {
+        const o = await api('apiMergeOrders', App.token, Pos.ctx.orderId, Pos.ctx.version, v.src);
+        posLoadBill(o);
+        posRenderAll();
+        toast('Bill digabung. ' + Pos.ctx.tableName + ' sekarang ' + o.pax + ' pax.');
+      } catch (e) {
+        if (e.code === 'STALE') { posReloadBill(e.message); return; }
+        throw e;
+      }
+    }
+  });
+}
+
+/** Close the table without payment. With saved items this is a VOID BILL (reason + note to admin). */
+async function posCancelBill() {
+  if (!Pos.ctx) return;
+  const saved = Pos.cart.filter(function (l) { return l.round; });
+  const hasItems = saved.length > 0;
+  let reason = '';
+  if (hasItems) {
+    reason = await askReason('Void bill ' + Pos.ctx.tableName,
+      'Bill ini sudah berisi ' + saved.map(function (i) { return i.savedQty + 'x ' + i.name; }).join(', ') +
+      '. Bill akan ditutup tanpa pembayaran. Dapur/bar dapat tanda BATAL. Admin & owner akan mendapat notifikasi.', 'Void bill');
+    if (!reason) return;
+  } else if (!confirm('Tutup ' + Pos.ctx.tableName + ' tanpa pesanan? Meja jadi kosong lagi.')) {
+    return;
+  }
+  showLoading(true, hasItems ? 'Memproses void…' : 'Menutup meja…');
+  try {
+    await api('apiCancelOpenOrder', App.token, Pos.ctx.orderId, Pos.ctx.version, reason);
+    toast(Pos.ctx.tableName + (hasItems ? ' di-void. Admin sudah diberi tahu.' : ' kosong lagi'));
+    posLeaveTable();
+    $('cartPanel').classList.remove('open');
+    go('tables');
+  } catch (e) {
+    if (e.code === 'STALE') posReloadBill(e.message); else posError(e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+/** Saves the table bill. opts.stay = keep the bill open on the POS (used before paying). Returns true when saved. */
+async function posSaveTable(opts) {
+  opts = opts || {};
+  if (!Pos.ctx || Pos.busy) return false;
+  let voidReason = '';
+  const removed = posRemovedItems();
+  if (removed.length) {
+    voidReason = await askReason('Void item di ' + Pos.ctx.tableName,
+      'Item yang sudah disimpan akan dikurangi: ' + removed.map(function (i) { return i.qty + 'x ' + i.name + ' (pesanan ' + i.round + ')'; }).join(', ') +
+      '. Dapur/bar dapat tanda BATAL. Admin & owner akan mendapat notifikasi.', 'Void & simpan');
+    if (!voidReason) return false;
+  }
+  const newCount = posNewLines().reduce(function (s, l) { return s + l.qty; }, 0);
+  Pos.busy = true;
+  posRenderCart();
+  showLoading(true, 'Menyimpan ke ' + Pos.ctx.tableName + '…');
+  try {
+    const o = await api('apiSaveOpenOrder', App.token, {
+      orderId: Pos.ctx.orderId, version: Pos.ctx.version, pax: Pos.ctx.pax, guestName: Pos.ctx.guest, voidReason: voidReason,
+      lines: Pos.cart.filter(function (l) { return l.qty > 0; }).map(function (l) {
+        return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '' };
+      })
+    });
+    const msg = 'Tersimpan ke ' + Pos.ctx.tableName + (o.addedRound ? ' · Pesanan ' + o.addedRound + ' (' + newCount + ' item) dikirim ke dapur/bar' : '') +
+      (removed.length ? ' · void item tercatat' : '');
+    Pos.busy = false;
+    if (opts.stay) {
+      posLoadBill(o);
+      posRenderAll();
+    } else {
+      posLeaveTable();
+      $('cartPanel').classList.remove('open');
+      go('tables');
+    }
+    toast(msg);
+    return true;
+  } catch (e) {
+    Pos.busy = false;
+    if (e.code === 'STALE') posReloadBill(e.message);
+    else if (e.code === 'PRICE_CHANGED') { await posRefreshMenu(); posError(e.message); }
+    else posError(e.network ? 'Server tidak bisa dihubungi. Cek internet lalu tekan SIMPAN KE MEJA lagi.' : e.message);
+    return false;
+  } finally {
+    Pos.busy = false;
+    showLoading(false);
+    posRenderCart();
+  }
+}
+
+async function posRefreshMenu() {
+  try { posSetProducts(await api('apiGetPosData', App.token)); posRenderAll(); } catch (x) {}
+}
+
+/* ---------- Discounts ---------- */
+function checkDiscLimit(t) {
+  if (!t.discount || Pos.maxDiscountPct >= 100 || !t.subtotal) return '';
+  if (t.discount / t.subtotal * 100 > Pos.maxDiscountPct + 1e-9) return 'Total diskon melebihi batas kasir (' + Pos.maxDiscountPct + '%).';
+  return '';
+}
+
+function lineByLid(lid) { return Pos.cart.filter(function (x) { return x.lid === lid; })[0]; }
+
+function posItemDiscount(lid) {
+  const l = lineByLid(lid);
+  if (!l) return;
+  if (!Pos.allowDiscount) return toast('Diskon dimatikan untuk kasir.', 'warn');
+  if (!l.qty) return;
+  const d = l.disc || { type: 'PCT', value: 0 };
+  const html = '<div class="row-sub">' + l.qty + ' x ' + rp(l.price) + ' = ' + rp(l.qty * l.price) + '</div>' +
+    '<div class="field"><span>Jenis diskon</span><div class="seg wide" id="idType">' +
+    '<button type="button" data-t="PCT"' + (d.type === 'PCT' ? ' class="active"' : '') + '>Persen (%)</button>' +
+    '<button type="button" data-t="AMT"' + (d.type === 'AMT' ? ' class="active"' : '') + '>Rupiah (Rp)</button></div></div>' +
+    '<label class="field"><span id="idLabel">Diskon</span><input id="idValue" inputmode="decimal" autocomplete="off" value="' +
+    (d.value ? (d.type === 'AMT' ? fmtNum(d.value) : String(d.value).replace('.', ',')) : '') + '"></label>' +
+    '<div class="quick-cash" id="idQuick"></div>' +
+    '<div class="sum-row"><span>Potongan</span><b id="idAmount">-Rp 0</b></div>' +
+    '<div class="sum-row"><span>Harga setelah diskon</span><b id="idNet"></b></div>' +
+    (l.disc ? '<button type="button" class="btn small danger-ghost" id="idRemove">Hapus diskon</button>' : '');
+  let type = d.type;
+  const read = function () {
+    const raw = $('idValue').value;
+    return type === 'AMT' ? parseMoney(raw) : Number(String(raw).replace(',', '.')) || 0;
+  };
+  const paint = function () {
+    const gross = l.qty * l.price;
+    const amt = Math.min(gross, discAmount({ type: type, value: read() }, gross));
+    $('idLabel').textContent = type === 'PCT' ? 'Diskon (%)' : 'Diskon (Rp) untuk baris ini';
+    $('idAmount').textContent = '-' + rp(amt);
+    $('idNet').textContent = rp(gross - amt);
+    $('idQuick').innerHTML = (type === 'PCT' ? [10, 20, 25, 50, 100] : [5000, 10000, 20000]).map(function (v) {
+      return '<button type="button" data-v="' + v + '">' + (type === 'PCT' ? v + '%' : fmtNum(v)) + '</button>';
+    }).join('');
+  };
+  openCustom({
+    title: 'Diskon: ' + l.name, html: html, submitLabel: 'Terapkan',
+    onOpen: function (body, close) {
+      paint();
+      body.oninput = function (e) {
+        if (e.target.id === 'idValue' && type === 'AMT' && e.target.value !== '') e.target.value = fmtNum(parseMoney(e.target.value));
+        paint();
+      };
+      body.onclick = function (e) {
+        const t = e.target.closest('#idType [data-t]');
+        if (t) {
+          type = t.dataset.t;
+          document.querySelectorAll('#idType [data-t]').forEach(function (b) { b.classList.toggle('active', b === t); });
+          $('idValue').value = '';
+          paint();
+          return;
+        }
+        const q = e.target.closest('#idQuick [data-v]');
+        if (q) { $('idValue').value = type === 'AMT' ? fmtNum(q.dataset.v) : q.dataset.v; paint(); return; }
+        if (e.target.id === 'idRemove') { l.disc = null; close(); posAfterChange(); }
+      };
+    },
+    onSubmit: async function () {
+      const v = read();
+      if (!v) { l.disc = null; posAfterChange(); return; }
+      if (type === 'PCT' && (v <= 0 || v > 100)) throw new Error('Diskon persen harus antara 0 dan 100.');
+      if (type === 'AMT' && v > l.qty * l.price) throw new Error('Diskon lebih besar dari harga baris ini.');
+      const old = l.disc;
+      l.disc = { type: type, value: type === 'PCT' ? Math.round(v * 100) / 100 : v };
+      const lim = checkDiscLimit(posTotals());
+      if (lim) { l.disc = old; throw new Error(lim); }
+      posAfterChange();
+    }
+  });
+}
+
+/* ---------- Notes for the kitchen / bar ---------- */
+function posNote(lid) {
+  const l = lineByLid(lid);
+  if (!l || l.round) return;
+  const parts = function (s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(String); };
+  const html = '<p class="small muted">Catatan ini muncul di layar dapur/bar dan di struk. Ketuk tombol untuk menambah, atau ketik sendiri.</p>' +
+    '<div class="quick-reasons" id="noteChips">' + Pos.quickNotes.map(function (q) {
+      return '<button type="button" class="chip" data-q="' + esc(q) + '">' + esc(q) + '</button>';
+    }).join('') + '</div>' +
+    '<label class="field"><span>Catatan</span><textarea id="noteText" rows="2" maxlength="100" placeholder="contoh: pedas banget, es batu dipisah">' + esc(l.note) + '</textarea></label>' +
+    (l.qty > 1 ? '<label class="field"><span>Untuk berapa porsi?</span><input id="noteQty" type="number" inputmode="numeric" min="1" max="' + l.qty + '" value="' + l.qty + '">' +
+      '<span class="help">Isi lebih kecil dari ' + l.qty + ' kalau catatannya hanya untuk sebagian (contoh: 1 dari 3 pedas). Baris akan dipisah.</span></label>' : '');
+  const paintChips = function () {
+    const cur = parts($('noteText').value).map(function (x) { return x.toLowerCase(); });
+    document.querySelectorAll('#noteChips [data-q]').forEach(function (b) { b.classList.toggle('active', cur.indexOf(b.dataset.q.toLowerCase()) >= 0); });
+  };
+  openCustom({
+    title: 'Catatan: ' + l.name, html: html, submitLabel: 'Simpan catatan',
+    onOpen: function (body) {
+      paintChips();
+      body.oninput = paintChips;
+      body.onclick = function (e) {
+        const b = e.target.closest('#noteChips [data-q]');
+        if (!b) return;
+        let cur = parts($('noteText').value);
+        const i = cur.map(function (x) { return x.toLowerCase(); }).indexOf(b.dataset.q.toLowerCase());
+        if (i >= 0) cur.splice(i, 1); else cur.push(b.dataset.q);
+        $('noteText').value = cur.join(', ').slice(0, 100);
+        paintChips();
+      };
+    },
+    onSubmit: async function () {
+      const note = $('noteText').value.replace(/\s+/g, ' ').trim().slice(0, 100);
+      const q = $('noteQty') ? Number($('noteQty').value) : l.qty;
+      if (!Number.isInteger(q) || q < 1 || q > l.qty) throw new Error('Jumlah porsi harus 1 sampai ' + l.qty + '.');
+      if (q < l.qty && note !== l.note) {
+        const copy = Object.assign({}, l, { lid: newLid(), qty: q, note: note, disc: null });
+        l.qty -= q;
+        if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * l.price) l.disc = null;
+        Pos.cart.splice(Pos.cart.indexOf(l) + 1, 0, copy);
+      } else {
+        l.note = note;
+      }
+      posAfterChange();
+    }
+  });
+}
+
+function posAfterChange() {
+  posError('');
+  posSaveDraft();
+  posRenderProducts();
+  posRenderCart();
+}
+
+/* ---------- Split bill ---------- */
+function posSplitMenu() {
+  if (!Pos.ctx || !Pos.canPay) return;
+  const html = '<div class="action-list">' +
+    '<button class="btn" type="button" data-a="items">Per item<span>Pilih item yang dibayar sekarang. Sisanya tetap di meja.</span></button>' +
+    '<button class="btn" type="button" data-a="equal">Bagi rata<span>Total dibagi sama rata, tiap orang bisa beda cara bayar.</span></button>' +
+    (Pos.payLines || Pos.split ? '<button class="btn" type="button" data-a="off">Batalkan split<span>Bayar semua sekaligus</span></button>' : '') + '</div>';
+  openCustom({
+    title: 'Split bill ' + Pos.ctx.tableName, html: html, readOnly: true,
+    onOpen: function (body, close) {
+      body.onclick = function (e) {
+        const b = e.target.closest('[data-a]');
+        if (!b) return;
+        close();
+        const a = b.dataset.a;
+        setTimeout(function () {
+          if (a === 'items') posSplitItems();
+          else if (a === 'equal') posSplitEqual();
+          else { Pos.payLines = null; Pos.split = null; posAfterChange(); }
+        }, 0);
+      };
+    }
+  });
+}
+
+function posSplitItems() {
+  if (!Pos.ctx) return;
+  if (posIsDirty()) return posError('Simpan bill dulu (SIMPAN KE MEJA), baru split per item.');
+  const lines = Pos.cart.filter(function (l) { return l.round && l.qty > 0; });
+  const pick = {};
+  lines.forEach(function (l) { pick[l.lid] = Pos.payLines ? (Pos.payLines[l.lid] || 0) : 0; });
+  const rowHtml = function (l) {
+    return '<div class="pick-row" data-lid="' + esc(l.lid) + '"><div><b>' + esc(l.name) + '</b>' +
+      '<div class="small muted">' + l.qty + ' x ' + rp(l.price) + (l.note ? ' · ' + esc(l.note) : '') + ' · Pesanan ' + l.round + '</div></div>' +
+      '<div class="qty"><button class="q-btn" type="button" data-p="dec">−</button><span class="q-val pick-val">' + pick[l.lid] + '/' + l.qty +
+      '</span><button class="q-btn" type="button" data-p="inc">+</button></div>' +
+      '<button class="link-btn small" type="button" data-p="all">Semua</button></div>';
+  };
+  const paint = function () {
+    let sum = 0, n = 0;
+    lines.forEach(function (l) { sum += pick[l.lid] * l.price; n += pick[l.lid]; });
+    $('pickSum').textContent = n + ' item dipilih · ' + rp(sum) + ' (sebelum diskon, service & pajak)';
+  };
+  openCustom({
+    title: 'Split per item', submitLabel: 'Bayar item terpilih',
+    html: '<p class="small muted">Pilih berapa dari setiap item yang dibayar sekarang. Item lain tetap di bill ' + esc(Pos.ctx.tableName) + '.</p>' +
+      '<div class="pick-list">' + lines.map(rowHtml).join('') + '</div><div class="list-summary" id="pickSum"></div>',
+    onOpen: function (body) {
+      paint();
+      body.onclick = function (e) {
+        const b = e.target.closest('[data-p]');
+        if (!b) return;
+        const row = b.closest('[data-lid]');
+        const l = lineByLid(row.dataset.lid);
+        if (b.dataset.p === 'inc') pick[l.lid] = Math.min(l.qty, pick[l.lid] + 1);
+        else if (b.dataset.p === 'dec') pick[l.lid] = Math.max(0, pick[l.lid] - 1);
+        else pick[l.lid] = pick[l.lid] === l.qty ? 0 : l.qty;
+        row.querySelector('.pick-val').textContent = pick[l.lid] + '/' + l.qty;
+        paint();
+      };
+    },
+    onSubmit: async function () {
+      const sel = {};
+      let any = false, all = true;
+      lines.forEach(function (l) { if (pick[l.lid]) { sel[l.lid] = pick[l.lid]; any = true; } if (pick[l.lid] !== l.qty) all = false; });
+      if (!any) throw new Error('Pilih minimal 1 item.');
+      Pos.payLines = all ? null : sel;
+      Pos.billDisc = { type: Pos.billDisc.type, value: Pos.billDisc.type === 'PCT' ? Pos.billDisc.value : 0 };
+      posSyncInputs();
+      posAfterChange();
+      $('cartPanel').classList.add('open');
+    }
+  });
+}
+
+function posSplitEqual() {
+  openForm({
+    title: 'Bagi rata', submitLabel: 'Bagi',
+    fields: [{ name: 'n', label: 'Dibagi untuk berapa orang?', type: 'number', min: 2, max: 20, value: Pos.split ? Pos.split.parts.length : 2,
+               help: 'Setiap orang bisa bayar dengan cara berbeda (tunai, QRIS, dll). Tunai dibulatkan per orang.' }],
+    onSubmit: async function (v) {
+      if (!Number.isInteger(v.n) || v.n < 2 || v.n > 20) throw new Error('Isi 2 sampai 20 orang.');
+      const parts = [];
+      for (let i = 0; i < v.n; i++) parts.push({ method: (Pos.split && Pos.split.parts[i]) ? Pos.split.parts[i].method : Pos.payment, cash: 0 });
+      Pos.split = { parts: parts };
+      posAfterChange();
+      $('cartPanel').classList.add('open');
+    }
+  });
+}
+
+/* ---------- Rendering ---------- */
+function posRenderAll() { posRenderCtx(); posRenderCats(); posRenderProducts(); posRenderCart(); }
+
+function posRenderCtx() {
+  const canTables = App.nav.some(function (n) { return n.id === 'tables'; });
+  if (!Pos.ctx) {
+    $('posCtx').innerHTML = '<button class="ctx-chip plain" type="button" data-ctx="guest">Takeaway' + (Pos.guest ? ' · ' + esc(Pos.guest) : ' · + nama tamu') + '</button>' +
+      (canTables ? '<button class="btn small" type="button" data-ctx="tables">Makan di tempat: pilih meja ›</button>' : '');
+    $('cartTitle').textContent = 'Pesanan' + (Pos.guest ? ' · ' + Pos.guest : '');
+    return;
+  }
+  const c = Pos.ctx;
+  $('posCtx').innerHTML =
+    '<button class="btn small ghost" type="button" data-ctx="back">‹ Meja</button>' +
+    '<button class="ctx-chip" type="button" data-ctx="guest">' + esc(c.tableName) + ' · ' + c.pax + ' pax' + (c.guest ? ' · ' + esc(c.guest) : '') + ' ✎</button>' +
+    (posIsDirty() ? '<span class="dirty">Belum disimpan</span>' : '') +
+    (c.paidCount ? '<span class="pill info">' + c.paidCount + ' sudah dibayar</span>' : '') +
+    '<button class="btn small ghost" type="button" data-ctx="more">⋯ Lainnya</button>';
+  $('cartTitle').textContent = c.tableName + ' · ' + c.pax + ' pax' + (c.guest ? ' · ' + c.guest : '');
+}
+
+function posRenderCats() {
+  $('catBar').innerHTML = Pos.categories.map(function (c) {
+    return '<button class="chip' + (c === Pos.cat ? ' active' : '') + '" type="button" data-cat="' + esc(c) + '">' + esc(c) + '</button>';
+  }).join('');
+}
+
+function posRenderProducts() {
+  const q = Pos.search.trim().toLowerCase();
+  const inCart = {};
+  Pos.cart.forEach(function (l) { if (!Pos.ctx || !l.round) inCart[l.id] = (inCart[l.id] || 0) + l.qty; });
+  const list = Pos.products.filter(function (p) {
+    return (Pos.cat === ALL_CAT || p.category === Pos.cat) && (!q || p.name.toLowerCase().indexOf(q) >= 0);
+  });
+  $('productGrid').innerHTML = list.length ? list.map(function (p) {
+    const img = Pos.showImages && p.image
+      ? '<span class="p-img"><img src="' + esc(p.image) + '" alt="" loading="lazy" onerror="this.parentNode.remove()"></span>' : '';
+    return '<button class="product' + (img ? ' has-img' : '') + '" type="button" data-id="' + esc(p.id) + '">' + img +
+      '<span class="p-name">' + esc(p.name) + '</span>' +
+      '<span class="p-price">' + rp(p.price) + '</span>' + (inCart[p.id] ? '<span class="p-qty">' + (Pos.ctx ? '+' : '') + inCart[p.id] + '</span>' : '') + '</button>';
+  }).join('') : '<div class="empty" style="grid-column:1/-1">Produk tidak ditemukan.</div>';
+}
+
+function cashSuggestions(total) {
+  if (total <= 0) return [];
+  const set = [total];
+  [5000, 10000, 20000, 50000, 100000].forEach(function (step) { set.push(Math.ceil(total / step) * step); });
+  [50000, 100000, 200000].forEach(function (v) { if (v > total) set.push(v); });
+  return set.filter(function (v, i) { return set.indexOf(v) === i; }).sort(function (a, b) { return a - b; }).slice(0, 5);
+}
+
+function lineHtml(l) {
+  const saved = !!l.round;
+  const gross = l.price * l.qty;
+  const voided = saved && l.qty < l.savedQty;
+  const pickQ = Pos.payLines ? Math.min(l.qty, Pos.payLines[l.lid] || 0) : null;
+  const dim = Pos.payLines && !pickQ;
+  const note = l.note ? '<div class="cl-note">📝 ' + esc(l.note) + '</div>' : '';
+  const noteBtn = !saved ? '<button class="link-btn small" type="button" data-act="note">' + (l.note ? 'Ubah catatan' : '+ Catatan') + '</button>' : '';
+  const discTxt = l._disc ? '<div class="cl-disc">Diskon ' + esc(discLabel(l.disc)) + ' · -' + rp(l._disc) + '</div>' : '';
+  const discBtn = Pos.allowDiscount && l.qty ? '<button class="link-btn small" type="button" data-act="disc">' + (l.disc ? 'Ubah diskon' : '+ Diskon') + '</button>' : '';
+  const tags = (voided ? '<span class="pill bad">' + (l.qty ? '−' + (l.savedQty - l.qty) + ' akan di-void' : 'akan di-void') + '</span>' : '') +
+    (pickQ ? '<span class="pill info">bayar ' + pickQ + (pickQ < l.qty ? ' dari ' + l.qty : '') + '</span>' : '');
+  return '<div class="cart-line' + (saved ? ' saved' : ' new') + (dim ? ' dim' : '') + (l.qty === 0 ? ' gone' : '') + '" data-lid="' + esc(l.lid) + '">' +
+    '<div class="cl-main"><div class="cl-name">' + esc(l.name) + '</div><div class="cl-unit">' + rp(l.price) + '</div>' + note + discTxt +
+    (tags ? '<div class="cl-tags">' + tags + '</div>' : '') +
+    '<div class="cl-links">' + noteBtn + discBtn + '</div></div>' +
+    '<div class="qty"><button class="q-btn" type="button" data-act="dec" aria-label="Kurangi">−</button>' +
+    '<input class="q-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="' + l.qty + '" aria-label="Jumlah">' +
+    '<button class="q-btn' + (saved ? ' locked' : '') + '" type="button" data-act="inc" aria-label="Tambah">+</button></div>' +
+    '<div class="cl-total">' + (l._disc ? '<s class="muted small">' + rp(gross) + '</s><br>' : '') + rp(gross - l._disc) + '</div>' +
+    '<button class="cl-remove" type="button" data-act="remove" aria-label="Hapus">✕</button></div>';
+}
+
+function posCartHtml() {
+  if (!Pos.cart.length) return '<div class="empty">Ketuk produk untuk menambahkan.</div>';
+  if (!Pos.ctx) return Pos.cart.map(lineHtml).join('');
+  const groups = [];
+  const byKey = {};
+  Pos.cart.filter(function (l) { return l.round; }).forEach(function (l) {
+    const k = (l.from || '') + '|' + l.round;
+    if (!byKey[k]) { byKey[k] = { round: l.round, from: l.from, at: l.at, by: l.by, lines: [] }; groups.push(byKey[k]); }
+    byKey[k].lines.push(l);
+  });
+  groups.sort(function (a, b) { return a.round - b.round || String(a.from).localeCompare(String(b.from)); });
+  let html = groups.map(function (g) {
+    return '<div class="round-head"><b>Pesanan ' + g.round + '</b>' + (g.at ? ' · ' + esc(g.at) : '') + (g.by ? ' · ' + esc(g.by) : '') +
+      (g.from ? ' · <span class="pill muted">dari ' + esc(g.from) + '</span>' : '') + '<span class="round-ok">✓ tersimpan</span></div>' +
+      g.lines.map(lineHtml).join('');
+  }).join('');
+  const fresh = Pos.cart.filter(function (l) { return !l.round; });
+  if (fresh.length) {
+    html += '<div class="round-new"><div class="round-head new"><b>PESANAN BARU</b> · belum disimpan' +
+      (groups.length ? ' · akan jadi Pesanan ' + (groups.reduce(function (m, g) { return Math.max(m, g.round); }, 0) + 1) : '') + '</div>' +
+      fresh.map(lineHtml).join('') + '</div>';
+  } else if (!groups.length) {
+    html = '<div class="empty">Ketuk produk untuk menambahkan.</div>';
+  }
+  return html;
+}
+
+function posRenderCart() {
+  const t = posTotals();
+  const ch = Pos.charges;
+  const pay = Pos.canPay;
+  $('cartItems').innerHTML = posCartHtml();
+
+  // split banner
+  let banner = '';
+  if (Pos.payLines) banner += '<div class="split-banner"><span><b>Split per item:</b> membayar ' + t.payItems + ' dari ' + t.items + ' item</span>' +
+    '<span><button class="link-btn small" type="button" data-sb="items">Ubah</button> · <button class="link-btn small" type="button" data-sb="items-off">Batal</button></span></div>';
+  if (Pos.split) banner += '<div class="split-banner"><span><b>Bagi rata ' + Pos.split.parts.length + ' orang</b></span>' +
+    '<span><button class="link-btn small" type="button" data-sb="equal">Ubah</button> · <button class="link-btn small" type="button" data-sb="equal-off">Batal</button></span></div>';
+  $('payBanner').innerHTML = banner;
+  $('payBanner').hidden = !banner || !pay;
+
+  $('sumSubtotal').textContent = rp(t.subtotal);
+  $('itemDiscRow').hidden = !t.itemDiscount;
+  $('sumItemDisc').textContent = '-' + rp(t.itemDiscount);
+  $('discountRow').hidden = !Pos.allowDiscount || !pay;
+  $('billDiscNote').hidden = !t.billDiscount;
+  $('billDiscNote').firstElementChild.textContent = Pos.billDisc.type === 'PCT' ? 'Potongan bill ' + discLabel(Pos.billDisc) : 'Potongan bill';
+  $('sumBillDisc').textContent = '-' + rp(t.billDiscount);
+  $('serviceRow').hidden = !(ch.servicePct > 0) || !pay;
+  $('serviceToggle').checked = Pos.applyService;
+  $('serviceName').textContent = ch.serviceLabel + ' ' + String(ch.servicePct).replace('.', ',') + '%';
+  $('sumService').textContent = rp(t.service);
+  $('taxRow').hidden = !(ch.taxPct > 0) || !pay;
+  $('taxToggle').checked = Pos.applyTax;
+  $('taxName').textContent = ch.taxLabel + ' ' + String(ch.taxPct).replace('.', ',') + '%';
+  $('sumTax').textContent = rp(t.tax);
+  $('roundRow').hidden = !t.rounding;
+  $('sumRound').textContent = rpSigned(t.rounding);
+  $('sumTotal').textContent = rp(pay ? t.grand : t.subtotal);
+  $('sumTotal').previousElementSibling.textContent = pay ? (Pos.payLines ? 'DIBAYAR SEKARANG' : 'TOTAL') : 'SUBTOTAL';
+
+  $('payArea').hidden = !pay;
+  $('shiftWarn').hidden = !(pay && Pos.shift.required && !Pos.shift.open);
+  $('shiftWarnBtn').hidden = !Pos.shift.canManage;
+  $('equalBtn').hidden = !!Pos.split;
+
+  if (pay) {
+    $('payMethods').hidden = !!Pos.split;
+    $('splitParts').hidden = !Pos.split;
+    if (Pos.split) {
+      $('cashBox').hidden = true;
+      $('splitParts').innerHTML = t.parts.map(function (p, i) {
+        const part = Pos.split.parts[i];
+        const chg = part.cash - p.due;
+        return '<div class="part" data-i="' + i + '"><div class="part-top"><b>Orang ' + (i + 1) + '</b><b>' + rp(p.due) + '</b></div>' +
+          (p.rounding ? '<div class="small muted">termasuk pembulatan ' + rpSigned(p.rounding) + '</div>' : '') +
+          '<div class="pay-methods compact">' + App.payOrder.map(function (k) {
+            return '<button class="pay-btn' + (k === part.method ? ' active' : '') + '" type="button" data-pm="' + k + '">' + esc(App.paymentMethods[k]) + '</button>';
+          }).join('') + '</div>' +
+          (part.method === 'CASH' ? '<div class="part-cash"><input class="money-input part-input" inputmode="numeric" placeholder="Uang diterima" autocomplete="off" value="' +
+            (part.cash ? fmtNum(part.cash) : '') + '"><button type="button" class="btn small" data-exact="1">Uang pas</button>' +
+            '<span class="part-chg' + (part.cash && chg < 0 ? ' short' : '') + '">' + (part.cash ? (chg < 0 ? 'Kurang ' + rp(-chg) : 'Kembali ' + rp(chg)) : '') + '</span></div>' : '') +
+          '</div>';
+      }).join('');
+    } else {
+      $('payMethods').innerHTML = App.payOrder.map(function (k) {
+        return '<button class="pay-btn' + (k === Pos.payment ? ' active' : '') + '" type="button" data-pay="' + k + '">' +
+          esc(App.paymentMethods[k]) + '</button>';
+      }).join('');
+      const isCash = Pos.payment === 'CASH';
+      $('cashBox').hidden = !isCash;
+      if (isCash) {
+        $('quickCash').innerHTML = cashSuggestions(t.grand).map(function (v) {
+          return '<button type="button" data-cash="' + v + '">' + (v === t.grand ? 'Uang pas' : fmtNum(v)) + '</button>';
+        }).join('');
+        const chg = Pos.cash - t.grand;
+        const row = $('changeAmt').parentNode;
+        if (Pos.cash && chg < 0) { $('changeAmt').textContent = 'Kurang ' + rp(-chg); row.classList.add('short'); }
+        else { $('changeAmt').textContent = rp(Math.max(0, chg)); row.classList.remove('short'); }
+      }
+    }
+  }
+
+  const dirty = posIsDirty();
+  $('saveTableBtn').hidden = !Pos.ctx;
+  $('saveTableBtn').disabled = Pos.busy || (!dirty && !!Pos.ctx);
+  $('saveTableBtn').textContent = Pos.ctx ? (dirty ? 'SIMPAN KE ' + Pos.ctx.tableName.toUpperCase() + ' •' : 'TERSIMPAN ✓') : '';
+  $('saveTableBtn').classList.toggle('primary', !pay && dirty);
+  $('completeBtn').hidden = !pay;
+  $('completeBtn').disabled = Pos.busy || !t.payItems;
+  const label = Pos.payLines ? 'BAYAR SEBAGIAN · ' : Pos.split ? 'BAYAR ' + Pos.split.parts.length + ' BAGIAN · ' : (Pos.ctx ? 'BAYAR & TUTUP MEJA · ' : 'BAYAR · ');
+  $('completeBtn').textContent = Pos.busy ? 'MENYIMPAN…' : label + rp(t.grand);
+  $('cartBarCount').textContent = (Pos.ctx ? Pos.ctx.tableName + ' · ' : '') + t.items + ' item' + (dirty ? ' · belum disimpan' : '');
+  $('cartBarTotal').textContent = rp(pay ? t.grand : t.subtotal);
+  if (Pos.ctx) posRenderCtx();
+}
+
+function posError(msg) {
+  $('posError').textContent = msg || '';
+  $('posError').hidden = !msg;
+}
+
+/* ---------- Cart actions ---------- */
+function posAdd(id) {
+  const p = Pos.byId[id];
+  if (!p) return;
+  if (!can('pos.sell') && !Pos.ctx) return go('tables');
+  // only merge into a NEW line of the same product without note / discount; saved lines are never touched
+  const line = Pos.cart.filter(function (l) { return l.id === id && !l.round && !l.note && !(l.disc && l.disc.value); })[0];
+  if (line) { if (line.qty < 999) line.qty++; }
+  else Pos.cart.push({ lid: newLid(), id: p.id, name: p.name, price: p.price, qty: 1, disc: null, note: '', grp: p.group || '',
+                       round: 0, at: '', by: '', from: '', savedQty: 0 });
+  posAfterChange();
+  const bar = $('cartBar');
+  bar.classList.remove('bump');
+  void bar.offsetWidth;
+  bar.classList.add('bump');
+}
+
+/** Sets a line's quantity (typed in, or − / +). Saved lines can only go down (to 0 = void). */
+function posSetQty(l, q) {
+  q = Math.max(0, Math.min(999, Math.floor(q)));
+  if (l.round) {
+    if (q > l.savedQty) {
+      toast('Untuk menambah ' + l.name + ', ketuk produknya lagi — masuk sebagai PESANAN BARU supaya dapur tahu.', 'warn');
+      q = l.savedQty;
+    }
+    if (q !== l.qty) Pos.payLines = null;
+    l.qty = q;
+  } else if (q < 1) {
+    Pos.cart = Pos.cart.filter(function (x) { return x !== l; });
+  } else {
+    l.qty = q;
+  }
+  if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * l.price) l.disc = null;
+  posAfterChange();
+}
+
+function posChange(lid, act) {
+  const l = lineByLid(lid);
+  if (!l) return;
+  if (act === 'disc') return posItemDiscount(lid);
+  if (act === 'note') return posNote(lid);
+  if (act === 'inc') return posSetQty(l, l.qty + 1);
+  if (act === 'dec') return posSetQty(l, l.qty - 1);
+  if (act === 'remove') {
+    if (l.round && l.qty === 0) return posSetQty(l, l.savedQty);   // ✕ again = undo the void
+    return posSetQty(l, 0);
+  }
+}
+
+/** After a takeaway sale: empty cart. */
+function posResetOrder() {
+  Pos.cart = []; Pos.ref = null; Pos.billDisc = { type: Pos.billDisc.type, value: 0 }; Pos.cash = 0; Pos.payment = 'CASH';
+  Pos.guest = ''; Pos.split = null; Pos.payLines = null;
+  Pos.applyService = Pos.charges.serviceOnTakeaway;
+  Pos.applyTax = Pos.charges.taxOnTakeaway;
+  posSyncInputs();
+  posError('');
+  posSaveDraft();
+  $('cartPanel').classList.remove('open');
+  posRenderAll();
+}
+
+/* ---------- Complete order ---------- */
+function posValidate() {
+  const t = posTotals();
+  if (!t.payItems) return 'Keranjang masih kosong.';
+  if (Pos.billDisc.type === 'PCT' && Pos.billDisc.value > 100) return 'Diskon bill maksimal 100%.';
+  if (Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet) return 'Diskon bill lebih besar dari subtotal.';
+  const lim = checkDiscLimit(t);
+  if (lim) return lim;
+  if (Pos.shift.required && !Pos.shift.open) return 'Shift kas belum dibuka. Buka dulu di ☰ → Kas & Shift (hitung modal awal).';
+  if (Pos.split) {
+    for (let i = 0; i < t.parts.length; i++) {
+      const part = Pos.split.parts[i];
+      if (!App.paymentMethods[part.method]) return 'Pilih cara bayar untuk orang ' + (i + 1) + '.';
+      if (part.method === 'CASH' && part.cash < t.parts[i].due) return 'Uang tunai orang ' + (i + 1) + ' belum diisi atau kurang.';
+    }
+    return '';
+  }
+  if (!App.paymentMethods[Pos.payment]) return 'Pilih metode pembayaran.';
+  if (Pos.payment === 'CASH') {
+    if (!Pos.cash) return 'Isi uang yang diterima (atau ketuk "Uang pas").';
+    if (Pos.cash < t.grand) return 'Uang yang diterima kurang dari total.';
+  }
+  return '';
+}
+
+function newRef() {
+  let rnd = '';
+  try {
+    const a = new Uint32Array(2);
+    crypto.getRandomValues(a);
+    rnd = a[0].toString(36) + a[1].toString(36);
+  } catch (e) {
+    rnd = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+  return (Date.now().toString(36) + '-' + rnd).replace(/[^A-Za-z0-9-]/g, '').slice(0, 60);
+}
+
+async function posComplete() {
+  if (Pos.busy) return;
+  const err = posValidate();
+  if (err) return posError(err);
+  if (Pos.ctx && posIsDirty()) {          // new items / voids are saved first (and go to the kitchen)
+    if (Pos.payLines) return posError('Simpan bill dulu, lalu pilih ulang item yang dibayar.');
+    const ok = await posSaveTable({ stay: true });
+    if (!ok) return;
+  }
+  posError('');
+  if (!Pos.ref) Pos.ref = newRef();   // same reference is reused if we have to retry
+  posSaveDraft();
+  const t = posTotals();
+  const payments = Pos.split
+    ? t.parts.map(function (p, i) { return { method: p.method, amountPaid: p.method === 'CASH' ? Pos.split.parts[i].cash : p.due }; })
+    : [{ method: Pos.payment, amountPaid: Pos.payment === 'CASH' ? Pos.cash : t.grand }];
+  const payLines = Pos.payLines ? Object.keys(Pos.payLines).map(function (k) { return { lid: k, qty: Pos.payLines[k] }; }) : null;
+  Pos.busy = true;
+  posRenderCart();
+  showLoading(true, 'Menyimpan pesanan…');
+  try {
+    const receipt = await api('apiCompleteOrder', App.token, {
+      clientRef: Pos.ref,
+      items: Pos.ctx ? [] : Pos.cart.map(function (l) { return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '' }; }),
+      billDiscount: Pos.billDisc.value ? Pos.billDisc : null,
+      applyService: Pos.applyService,
+      applyTax: Pos.applyTax,
+      payments: payments,
+      paymentMethod: payments[0].method,
+      amountPaid: payments[0].amountPaid,
+      expectedTotal: t.grand,
+      guestName: Pos.ctx ? '' : Pos.guest,
+      openOrderId: Pos.ctx ? Pos.ctx.orderId : '',
+      version: Pos.ctx ? Pos.ctx.version : '',
+      payLines: payLines
+    });
+    Pos.busy = false;
+    if (receipt.openOrder) {                 // split per item: the rest of the bill stays open
+      posLoadBill(receipt.openOrder);
+      Pos.ref = null; Pos.split = null; Pos.cash = 0; Pos.payment = 'CASH'; Pos.billDisc = { type: 'AMT', value: 0 };
+      posSyncInputs();
+      posRenderAll();
+      toast('Sebagian dibayar. Sisa bill ' + Pos.ctx.tableName + ' masih terbuka.', 'warn');
+    } else if (Pos.ctx) {
+      posLeaveTable();          // back to the takeaway order that was waiting (if any)
+      $('cartPanel').classList.remove('open');
+      posRenderAll();
+    } else {
+      posResetOrder();
+    }
+    showReceipt(receipt, { afterSale: true });
+    if (receipt.alreadySaved) toast('Pesanan ini sudah tersimpan sebelumnya. Ini struk yang tersimpan.', 'warn');
+    else if (receipt.drawerFull) toast('Uang tunai di laci sudah banyak. Segera setor ke owner/admin (☰ → Kas & Shift).', 'warn');
+  } catch (e) {
+    Pos.busy = false;
+    if (e.code === 'STALE' && Pos.ctx) { posReloadBill(e.message); return; }
+    if (e.code === 'PRICE_CHANGED') await posRefreshMenu();
+    if (e.code === 'NO_SHIFT') Pos.shift.open = false;
+    posError(e.network
+      ? 'Server tidak bisa dihubungi. Cek internet lalu tekan BAYAR lagi. Pesanan yang sama TIDAK akan tersimpan dua kali.'
+      : e.message);
+  } finally {
+    Pos.busy = false;
+    showLoading(false);
+    posRenderCart();
+  }
+}
+
+/* ---------- Events ---------- */
+function posBind() {
+  $('productGrid').addEventListener('click', function (e) {
+    const b = e.target.closest('.product');
+    if (b) posAdd(b.dataset.id);
+  });
+  $('catBar').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-cat]');
+    if (!b) return;
+    Pos.cat = b.dataset.cat;
+    posRenderCats();
+    posRenderProducts();
+  });
+  $('posCtx').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-ctx]');
+    if (!b) return;
+    const a = b.dataset.ctx;
+    if (a === 'tables') go('tables');
+    else if (a === 'back') posBackToTables();
+    else if (a === 'guest') posEditGuest();
+    else if (a === 'more') posMore();
+  });
+  $('posSearch').addEventListener('input', function (e) { Pos.search = e.target.value; posRenderProducts(); });
+  $('posRefresh').addEventListener('click', function () { Pos.loaded = true; posLoad(); });
+  $('cartItems').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    posChange(b.closest('.cart-line').dataset.lid, b.dataset.act);
+  });
+  // typing a quantity: tap the number, type 2, press Enter / tap elsewhere
+  $('cartItems').addEventListener('focusin', function (e) {
+    if (e.target.classList.contains('q-val')) setTimeout(function () { try { e.target.select(); } catch (x) {} }, 0);
+  });
+  $('cartItems').addEventListener('keydown', function (e) {
+    if (e.target.classList.contains('q-val') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+  });
+  $('cartItems').addEventListener('change', function (e) {
+    if (!e.target.classList.contains('q-val')) return;
+    const l = lineByLid(e.target.closest('.cart-line').dataset.lid);
+    if (!l) return;
+    const raw = String(e.target.value).replace(/[^0-9]/g, '');
+    if (raw === '') { e.target.value = l.qty; return; }
+    posSetQty(l, parseInt(raw, 10));
+  });
+  $('cartClear').addEventListener('click', function () {
+    if (!Pos.cart.length) return;
+    if (Pos.ctx) {
+      const fresh = posNewLines().length;
+      if (!fresh) return toast('Tidak ada pesanan baru. Untuk membatalkan item yang sudah tersimpan, kurangi jumlahnya (perlu alasan void).', 'warn');
+      if (!confirm('Hapus semua PESANAN BARU yang belum disimpan dari ' + Pos.ctx.tableName + '?')) return;
+      Pos.cart = Pos.cart.filter(function (l) { return l.round; });
+      posAfterChange();
+    } else if (confirm('Kosongkan seluruh pesanan?')) {
+      posResetOrder();
+    }
+  });
+  $('payMethods').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-pay]');
+    if (!b) return;
+    Pos.payment = b.dataset.pay;
+    posAfterChange();
+  });
+  $('payBanner').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-sb]');
+    if (!b) return;
+    const a = b.dataset.sb;
+    if (a === 'items') posSplitItems();
+    else if (a === 'equal') posSplitEqual();
+    else if (a === 'items-off') { Pos.payLines = null; posAfterChange(); }
+    else if (a === 'equal-off') { Pos.split = null; posAfterChange(); }
+  });
+  $('equalBtn').addEventListener('click', function () {
+    if (Pos.ctx && Pos.cart.some(function (l) { return l.round; })) posSplitMenu(); else posSplitEqual();
+  });
+  $('splitParts').addEventListener('click', function (e) {
+    const row = e.target.closest('.part');
+    if (!row) return;
+    const part = Pos.split.parts[Number(row.dataset.i)];
+    const m = e.target.closest('[data-pm]');
+    if (m) { part.method = m.dataset.pm; part.cash = 0; posAfterChange(); return; }
+    if (e.target.closest('[data-exact]')) { part.cash = posTotals().parts[Number(row.dataset.i)].due; posAfterChange(); }
+  });
+  $('splitParts').addEventListener('change', function (e) {
+    if (!e.target.classList.contains('part-input')) return;
+    const row = e.target.closest('.part');
+    Pos.split.parts[Number(row.dataset.i)].cash = parseMoney(e.target.value);
+    posAfterChange();
+  });
+  $('shiftWarnBtn').addEventListener('click', function () { $('cartPanel').classList.remove('open'); go('shift'); });
+  $('serviceToggle').addEventListener('change', function (e) {
+    Pos.applyService = e.target.checked;
+    posAfterChange();
+  });
+  $('taxToggle').addEventListener('change', function (e) {
+    Pos.applyTax = e.target.checked;
+    posAfterChange();
+  });
+  $('billDiscType').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-t]');
+    if (!b || b.dataset.t === Pos.billDisc.type) return;
+    Pos.billDisc = { type: b.dataset.t, value: 0 };
+    posSyncInputs();
+    posAfterChange();
+  });
+  $('discountInput').addEventListener('input', function (e) {
+    const el = e.target;
+    if (Pos.billDisc.type === 'AMT') {
+      Pos.billDisc.value = parseMoney(el.value);
+      if (el.value !== '') el.value = fmtNum(Pos.billDisc.value);
+    } else {
+      const v = Number(String(el.value).replace(',', '.'));
+      Pos.billDisc.value = isFinite(v) && v > 0 ? Math.min(100, Math.round(v * 100) / 100) : 0;
+    }
+    const t = posTotals();
+    posSaveDraft();
+    posRenderCart();
+    posError(Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet ? 'Diskon bill lebih besar dari subtotal.' : checkDiscLimit(t));
+  });
+  $('cashInput').addEventListener('input', function (e) {
+    Pos.cash = parseMoney(e.target.value);
+    posAfterChange();
+  });
+  $('quickCash').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-cash]');
+    if (!b) return;
+    Pos.cash = Number(b.dataset.cash);
+    $('cashInput').value = fmtNum(Pos.cash);
+    posAfterChange();
+  });
+  $('completeBtn').addEventListener('click', posComplete);
+  $('saveTableBtn').addEventListener('click', function () { posSaveTable(); });
+  $('cartBar').addEventListener('click', function () { $('cartPanel').classList.add('open'); });
+  $('cartClose').addEventListener('click', function () { $('cartPanel').classList.remove('open'); });
+  $('receiptDone').addEventListener('click', function () { if (App.view === 'pos' && !Pos.ctx) $('cartPanel').classList.remove('open'); });
+}
+
+posBind();
+</script>

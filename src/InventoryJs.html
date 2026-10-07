@@ -1,0 +1,330 @@
+<script>
+/* ================= InventoryJs: recipes, COGS, ingredients, stock (Phase 2-3) ================= */
+
+const GROUP_WORD = { FOOD: 'Makanan', BEVERAGE: 'Minuman', SHARED: 'Bersama' };
+const MOVE_WORD = { PURCHASE: 'BELI', SALE: 'JUAL', WASTE: 'WASTE', ADJUST: 'OPNAME', OPENING: 'STOK AWAL', VOID: 'VOID' };
+const Inv = { recipes: null, group: null, mode: null, search: '', ing: null, ingGroup: 'ALL', stock: null };
+
+Views.food_recipes = function () { recipesView('FOOD', 'recipes'); };
+Views.bev_recipes = function () { recipesView('BEVERAGE', 'recipes'); };
+Views.food_cogs = function () { recipesView('FOOD', 'cogs'); };
+Views.bev_cogs = function () { recipesView('BEVERAGE', 'cogs'); };
+Views.food_stock = function () { stockView('FOOD'); };
+Views.bev_stock = function () { stockView('BEVERAGE'); };
+Views.ingredients = function () { Inv.search = ''; ingredientsView(); };
+
+/* ---------------- Recipes & COGS ---------------- */
+async function recipesView(group, mode) {
+  Inv.group = group; Inv.mode = mode; Inv.search = '';
+  try {
+    Inv.recipes = await api('apiGetRecipes', App.token, group);
+    recipesRender();
+  } catch (e) {
+    Mod.render('<p class="error">' + esc(e.message) + '</p>');
+  }
+}
+
+function recipesRender() {
+  const d = Inv.recipes;
+  const word = Inv.group === 'FOOD' ? 'makanan' : 'minuman';
+  const withRecipe = d.products.filter(function (p) { return p.recipe; });
+  const priced = withRecipe.filter(function (p) { return p.price > 0; });
+  const avgPct = priced.length ? Math.round(priced.reduce(function (s, p) { return s + p.costPct; }, 0) / priced.length * 10) / 10 : null;
+  const q = Inv.search.toLowerCase();
+  const list = d.products.filter(function (p) { return !q || p.name.toLowerCase().indexOf(q) >= 0; });
+  const intro = Inv.mode === 'recipes'
+    ? (d.canEdit ? 'Ketuk produk untuk menulis atau mengubah resepnya. Harga pokok diambil dari harga beli asli.' : 'Hanya bisa dilihat.')
+    : 'HPP per porsi dari resep, dibanding harga jual. Di bawah 32% hijau, di atas 40% merah.';
+  let html = '<div class="toolbar"><input class="search" id="recSearch" type="search" placeholder="Cari produk ' + word + '…" value="' + esc(Inv.search) + '"></div>' +
+    '<div class="kpis"><div class="kpi"><div class="kpi-label">Produk</div><div class="kpi-value">' + d.products.length + '</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Sudah ada resep</div><div class="kpi-value">' + withRecipe.length + '</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Rata-rata HPP %</div><div class="kpi-value">' + (avgPct === null ? '–' : String(avgPct).replace('.', ',') + '%') + '</div></div></div>' +
+    '<p class="muted small">' + intro + '</p><div class="table-list">';
+  html += list.length ? list.map(function (p) {
+    const r = p.recipe;
+    const right = r
+      ? '<div class="row-right">' + rp(r.perServing) + '<div class="row-sub">' + pctTag(p.costPct) + ' dari ' + rp(p.price) + '</div></div>'
+      : '<div class="row-right muted small">Belum ada resep' + (p.cost ? '<div class="row-sub">HPP manual ' + rp(p.cost) + '</div>' : '') + '</div>';
+    const warn = r && r.problems.length ? ' · <b class="warn-text">⚠ ' + r.problems.length + ' perlu dicek</b>' : '';
+    return '<div class="row-item clickable" data-act="open" data-id="' + esc(p.id) + '"><div class="row-main"><div class="row-title">' + esc(p.name) + '</div>' +
+      '<div class="row-sub">' + esc(p.category) + (r ? ' · ' + r.lines.length + ' bahan · hasil ' + numFmt(r.yieldQty) + ' porsi' : '') + warn + '</div></div>' + right + '</div>';
+  }).join('') : '<div class="empty">Belum ada produk ' + word + '. Atur Grup resep produk ke ' + (Inv.group === 'FOOD' ? 'Makanan' : 'Minuman') + ' di menu Produk.</div>';
+  html += '</div>';
+  if (!d.ingredients.length && d.canEdit) html += '<p class="note-line">Belum ada bahan ' + word + '. Tambahkan dulu di <b>Bahan Baku</b>.</p>';
+  Mod.render(html);
+  Mod.on({
+    open: function (el) {
+      const p = Inv.recipes.products.filter(function (x) { return x.id === el.dataset.id; })[0];
+      if (Inv.mode === 'recipes' && Inv.recipes.canEdit) recipeEditor(p); else recipeDetail(p);
+    },
+    _input: function (e) {
+      if (e.target.id === 'recSearch') {
+        Inv.search = e.target.value;
+        const pos = e.target.selectionStart;
+        recipesRender();
+        const el = $('recSearch'); el.focus(); el.setSelectionRange(pos, pos);
+      }
+    }
+  });
+}
+
+function recipeDetail(p) {
+  const r = p.recipe;
+  let html = '<div class="row-sub">' + esc(p.category) + ' · harga jual ' + rp(p.price) + '</div>';
+  if (!r) html += '<p class="muted">Belum ada resep.' + (p.cost ? ' HPP manual di Produk: ' + rp(p.cost) + '.' : '') + '</p>';
+  else {
+    html += dataTable([
+      { label: 'Bahan', key: 'name' },
+      { label: 'Jumlah', fn: function (l) { return numFmt(l.qty) + ' ' + esc(l.unit); }, num: true },
+      { label: 'Biaya', fn: function (l) { return rp(Math.round(l.cost)); }, num: true }
+    ], r.lines) +
+    '<div class="sum-row"><span>Biaya resep (hasil ' + numFmt(r.yieldQty) + ' porsi)</span><b>' + rp(r.totalCost) + '</b></div>' +
+    '<div class="sum-row total"><span>HPP per porsi</span><span>' + rp(r.perServing) + '</span></div>' +
+    '<div class="sum-row"><span>HPP % dari harga jual</span>' + pctTag(p.costPct) + '</div>' +
+    '<div class="sum-row"><span>Laba kotor per porsi</span><b>' + rp(p.price - r.perServing) + '</b></div>' +
+    (r.problems.length ? '<p class="error">' + r.problems.map(esc).join('<br>') + '</p>' : '') +
+    (r.notes ? '<p class="small"><b>Catatan:</b> ' + esc(r.notes) + '</p>' : '') +
+    '<p class="muted small">Terakhir diubah ' + esc(r.updatedAt) + ' oleh ' + esc(r.updatedBy) + '</p>';
+  }
+  openCustom({ title: p.name, html: html, readOnly: true, onSubmit: async function () {} });
+}
+
+function recipeLineHtml(l, ings, units) {
+  const ing = ings.filter(function (i) { return i.id === l.ingredientId; })[0];
+  const unitOpts = ing ? units[ing.baseUnit] : [];
+  return '<div class="line-row" data-line>' +
+    '<select class="ln-ing"><option value="">Pilih bahan…</option>' + ings.map(function (i) {
+      return '<option value="' + esc(i.id) + '"' + (i.id === l.ingredientId ? ' selected' : '') + '>' + esc(i.name) + ' (' + i.baseUnit + ')</option>';
+    }).join('') + '</select>' +
+    '<input class="ln-qty" type="number" inputmode="decimal" step="any" min="0" placeholder="Jml" value="' + (l.qty || '') + '">' +
+    '<select class="ln-unit">' + unitOpts.map(function (u) { return '<option' + (u === l.unit ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select>' +
+    '<span class="ln-cost">–</span><button class="cl-remove" type="button" data-rm aria-label="Hapus">✕</button></div>';
+}
+
+function recipeEditor(p) {
+  const d = Inv.recipes;
+  const r = p.recipe;
+  const lines = r ? r.lines.map(function (l) { return { ingredientId: l.ingredientId, qty: l.qty, unit: l.unit }; }) : [{ ingredientId: '', qty: '', unit: '' }];
+  const html = '<div class="row-sub">' + esc(p.category) + ' · harga jual ' + rp(p.price) + '</div>' +
+    '<label class="field"><span>Hasil (berapa porsi dari resep ini)</span><input id="rcYield" type="number" inputmode="decimal" step="any" min="0" value="' + (r ? r.yieldQty : 1) + '"></label>' +
+    '<div class="field"><span>Bahan</span><div id="rcLines">' + lines.map(function (l) { return recipeLineHtml(l, d.ingredients, d.units); }).join('') + '</div>' +
+    '<button class="btn small" type="button" id="rcAdd">+ Tambah bahan</button></div>' +
+    '<div class="sum-row"><span>Biaya resep</span><b id="rcTotal">–</b></div>' +
+    '<div class="sum-row total"><span>HPP per porsi</span><span id="rcServing">–</span></div>' +
+    '<div class="sum-row"><span>HPP % dari harga jual</span><span id="rcPct"></span></div>' +
+    '<label class="field"><span>Catatan (opsional)</span><input id="rcNotes" type="text" value="' + esc(r ? r.notes : '') + '" placeholder="contoh: goreng 8 menit di 180°C"></label>' +
+    (r ? '<label class="switch-label small"><input type="checkbox" id="rcDelete"> Hapus resep ini</label>' : '') +
+    (d.ingredients.length ? '' : '<p class="error">Belum ada bahan. Tambahkan dulu di Bahan Baku.</p>');
+
+  const recalc = function () {
+    let total = 0;
+    document.querySelectorAll('#rcLines [data-line]').forEach(function (row) {
+      const ing = d.ingredients.filter(function (i) { return i.id === row.querySelector('.ln-ing').value; })[0];
+      const qty = Number(row.querySelector('.ln-qty').value) || 0;
+      const unit = row.querySelector('.ln-unit').value;
+      const cost = ing && unit ? qty * (UNIT_FACTORS[unit] || 1) * ing.cost : 0;
+      total += cost;
+      row.querySelector('.ln-cost').textContent = ing ? rp(Math.round(cost)) : '–';
+    });
+    const y = Number($('rcYield').value) || 1;
+    const per = Math.round(total / y);
+    $('rcTotal').textContent = rp(Math.round(total));
+    $('rcServing').textContent = rp(per);
+    $('rcPct').innerHTML = p.price ? pctTag(Math.round(per / p.price * 1000) / 10) : '';
+  };
+
+  openCustom({
+    title: (r ? 'Resep: ' : 'Resep baru: ') + p.name,
+    html: html,
+    submitLabel: 'Simpan resep',
+    onOpen: function (body) {
+      recalc();
+      body.onchange = function (e) {
+        if (e.target.classList.contains('ln-ing')) {
+          const ing = d.ingredients.filter(function (i) { return i.id === e.target.value; })[0];
+          const sel = e.target.closest('[data-line]').querySelector('.ln-unit');
+          sel.innerHTML = ing ? d.units[ing.baseUnit].map(function (u) { return '<option>' + u + '</option>'; }).join('') : '';
+        }
+        recalc();
+      };
+      body.oninput = recalc;
+      body.onclick = function (e) {
+        if (e.target.id === 'rcAdd') {
+          $('rcLines').insertAdjacentHTML('beforeend', recipeLineHtml({ ingredientId: '', qty: '', unit: '' }, d.ingredients, d.units));
+        } else if (e.target.closest('[data-rm]')) {
+          e.target.closest('[data-line]').remove();
+          recalc();
+        }
+      };
+    },
+    onSubmit: async function () {
+      if ($('rcDelete') && $('rcDelete').checked) {
+        if (!confirm('Hapus resep ' + p.name + '?')) throw new Error('Tidak dihapus.');
+        await api('apiDeleteRecipe', App.token, p.id);
+        toast('Resep dihapus');
+      } else {
+        const out = [];
+        document.querySelectorAll('#rcLines [data-line]').forEach(function (row) {
+          const id = row.querySelector('.ln-ing').value;
+          const qty = row.querySelector('.ln-qty').value;
+          if (!id && !qty) return;
+          out.push({ ingredientId: id, qty: Number(qty), unit: row.querySelector('.ln-unit').value });
+        });
+        const res = await api('apiSaveRecipe', App.token, { productId: p.id, yieldQty: Number($('rcYield').value), notes: $('rcNotes').value, lines: out });
+        toast('Resep tersimpan · HPP ' + rp(res.perServing) + ' per porsi');
+      }
+      recipesView(Inv.group, Inv.mode);
+    }
+  });
+}
+
+/* ---------------- Ingredients ---------------- */
+async function ingredientsView() {
+  try {
+    Inv.ing = await api('apiGetIngredients', App.token);
+    ingredientsRender();
+  } catch (e) {
+    Mod.render('<p class="error">' + esc(e.message) + '</p>');
+  }
+}
+
+function ingredientsRender() {
+  const d = Inv.ing;
+  const groups = ['ALL'].concat(['FOOD', 'BEVERAGE', 'SHARED'].filter(function (g) { return d.ingredients.some(function (i) { return i.group === g; }); }));
+  if (groups.indexOf(Inv.ingGroup) < 0) Inv.ingGroup = 'ALL';
+  const q = Inv.search.toLowerCase();
+  const list = d.ingredients.filter(function (i) {
+    return (Inv.ingGroup === 'ALL' || i.group === Inv.ingGroup) && (!q || i.name.toLowerCase().indexOf(q) >= 0);
+  }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  let html = '<div class="toolbar"><input class="search" id="ingSearch" type="search" placeholder="Cari bahan…" value="' + esc(Inv.search) + '">' +
+    (d.editGroups.length ? '<button class="btn primary" type="button" data-act="add">+ Tambah</button>' : '') + '</div>' +
+    '<div class="filter-bar">' + groups.map(function (g) {
+      return '<button class="chip' + (g === Inv.ingGroup ? ' active' : '') + '" type="button" data-act="grp" data-g="' + g + '">' + (g === 'ALL' ? 'Semua' : GROUP_WORD[g]) + '</button>';
+    }).join('') + '</div>' +
+    '<p class="muted small">Harga pokok diambil dari Penerimaan Barang (harga beli asli). Bersama = dipakai dapur dan bar.</p><div class="table-list">';
+  html += list.length ? list.map(function (i) {
+    return '<div class="row-item' + (i.active ? '' : ' inactive') + (d.editGroups.indexOf(i.group) >= 0 ? ' clickable' : '') + '" data-act="edit" data-id="' + esc(i.id) + '">' +
+      '<div class="row-main"><div class="row-title">' + esc(i.name) + ' <span class="tag">' + esc(GROUP_WORD[i.group] || i.group) + '</span>' + (i.low ? ' <span class="pill bad">Menipis</span>' : '') + '</div>' +
+      '<div class="row-sub">Stok ' + humanQty(i.stock, i.baseUnit) + (i.minStock ? ' · min ' + humanQty(i.minStock, i.baseUnit) : '') +
+      ' · beli per ' + esc(i.purchaseUnit) + ' (= ' + numFmt(i.purchaseToBase) + ' ' + i.baseUnit + ')' + (i.supplierName ? ' · ' + esc(i.supplierName) : '') + '</div></div>' +
+      '<div class="row-right">' + (i.cost ? rp(i.costPerPurchaseUnit) + '<div class="row-sub">per ' + esc(i.purchaseUnit) + '</div>' : '<span class="muted small">belum ada harga</span>') + '</div></div>';
+  }).join('') : '<div class="empty">Belum ada bahan.' + (d.editGroups.length ? ' Ketuk “+ Tambah”.' : '') + '</div>';
+  Mod.render(html + '</div>');
+  Mod.on({
+    add: function () { ingredientForm(null); },
+    edit: function (el) {
+      const i = Inv.ing.ingredients.filter(function (x) { return x.id === el.dataset.id; })[0];
+      if (i && Inv.ing.editGroups.indexOf(i.group) >= 0) ingredientForm(i);
+    },
+    grp: function (el) { Inv.ingGroup = el.dataset.g; ingredientsRender(); },
+    _input: function (e) {
+      if (e.target.id === 'ingSearch') {
+        Inv.search = e.target.value;
+        const pos = e.target.selectionStart;
+        ingredientsRender();
+        const el = $('ingSearch'); el.focus(); el.setSelectionRange(pos, pos);
+      }
+    }
+  });
+}
+
+function ingredientForm(i) {
+  const d = Inv.ing;
+  openForm({
+    title: i ? 'Ubah ' + i.name : 'Tambah bahan',
+    fields: [
+      { name: 'name', label: 'Nama', value: i ? i.name : '' },
+      { name: 'group', label: 'Grup', type: 'select', value: i ? i.group : d.editGroups[0],
+        options: d.editGroups.map(function (g) { return { value: g, label: g === 'SHARED' ? 'Bersama (dapur + bar)' : GROUP_WORD[g] }; }) },
+      { name: 'baseUnit', label: 'Satuan dasar (dipakai di resep dan stok)', type: 'select', value: i ? i.baseUnit : 'g',
+        options: [{ value: 'g', label: 'g (gram)' }, { value: 'ml', label: 'ml (mililiter)' }, { value: 'pcs', label: 'pcs (biji/buah)' }, { value: 'portion', label: 'portion (porsi)' }],
+        help: 'Di resep juga bisa pakai kg (untuk g) dan L (untuk ml).' },
+      { name: 'purchaseUnit', label: 'Satuan beli (cara Anda membelinya)', value: i ? i.purchaseUnit : 'kg', help: 'contoh: kg, botol 1L, dus 24, pack 500g' },
+      { name: 'purchaseToBase', label: 'Isi per 1 satuan beli (dalam satuan dasar)', type: 'number', min: 0, value: i ? i.purchaseToBase : 1000,
+        help: 'kg → 1000 g · botol 1L → 1000 ml · dus 24 → 24 pcs' },
+      { name: 'minStock', label: 'Stok minimum (satuan dasar, 0 = tanpa peringatan)', type: 'number', min: 0, value: i ? i.minStock : 0 },
+      { name: 'supplierId', label: 'Supplier biasa', type: 'select', value: i ? i.supplierId : '',
+        options: [{ value: '', label: '— tidak ada —' }].concat(d.suppliers.map(function (s) { return { value: s.id, label: s.name }; })) },
+      { name: 'active', label: 'Aktif', type: 'checkbox', value: i ? i.active : true }
+    ],
+    onSubmit: async function (v) {
+      v.id = i ? i.id : '';
+      await api('apiSaveIngredient', App.token, v);
+      toast('Bahan tersimpan');
+      ingredientsView();
+    }
+  });
+}
+
+/* ---------------- Stock ---------------- */
+async function stockView(group) {
+  try {
+    Inv.stock = await api('apiGetStock', App.token, group);
+    stockRender();
+  } catch (e) {
+    Mod.render('<p class="error">' + esc(e.message) + '</p>');
+  }
+}
+
+function stockRender() {
+  const d = Inv.stock;
+  const low = d.ingredients.filter(function (i) { return i.low; });
+  const value = d.ingredients.reduce(function (s, i) { return s + i.value; }, 0);
+  let html = '<div class="kpis"><div class="kpi"><div class="kpi-label">Bahan</div><div class="kpi-value">' + d.ingredients.length + '</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Stok menipis</div><div class="kpi-value' + (low.length ? ' bad-text' : '') + '">' + low.length + '</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Nilai stok</div><div class="kpi-value">' + rp(value) + '</div></div></div>' +
+    '<p class="muted small">Setiap penjualan otomatis mengurangi stok bahan sesuai resep. Catat waste kalau ada bahan yang dibuang.' +
+    (d.canAdjust ? ' Pakai Hitung stok setelah stock opname fisik.' : '') + '</p><div class="table-list">';
+  html += d.ingredients.length ? d.ingredients.map(function (i) {
+    return '<div class="row-item"><div class="row-main"><div class="row-title">' + esc(i.name) + (i.low ? ' <span class="pill bad">Menipis</span>' : '') +
+      (i.stock < 0 ? ' <span class="pill warn">Di bawah nol</span>' : '') + '</div>' +
+      '<div class="row-sub">' + humanQty(i.stock, i.baseUnit) + (i.minStock ? ' · min ' + humanQty(i.minStock, i.baseUnit) : '') + ' · ' + rp(i.value) + '</div></div>' +
+      '<div class="row-actions">' + (i.canWaste ? '<button class="btn small" type="button" data-act="waste" data-id="' + esc(i.id) + '">Waste</button>' : '') +
+      (d.canAdjust ? '<button class="btn small" type="button" data-act="count" data-id="' + esc(i.id) + '">Hitung stok</button>' : '') + '</div></div>';
+  }).join('') : '<div class="empty">Belum ada bahan.</div>';
+  html += '</div><h3 class="sec-title">Pergerakan stok terakhir</h3><div class="table-list">';
+  html += d.movements.length ? d.movements.map(function (m) {
+    return '<div class="row-item compact"><div class="row-main"><div class="row-title">' + esc(m.ingredient) + ' <span class="tag mv-' + m.type.toLowerCase() + '">' + esc(MOVE_WORD[m.type] || m.type) + '</span></div>' +
+      '<div class="row-sub">' + esc(m.when) + (m.ref ? ' · ' + esc(m.ref) : '') + (m.notes ? ' · ' + esc(m.notes) : '') + '</div></div>' +
+      '<div class="row-right">' + (m.qtyBase > 0 ? '+' : '') + numFmt(m.qtyBase) + '<div class="row-sub">' + rp(m.cost) + '</div></div></div>';
+  }).join('') : '<div class="empty">Belum ada pergerakan stok.</div>';
+  Mod.render(html + '</div>');
+  const find = function (id) { return Inv.stock.ingredients.filter(function (x) { return x.id === id; })[0]; };
+  Mod.on({
+    waste: function (el) {
+      const i = find(el.dataset.id);
+      openForm({
+        title: 'Waste: ' + i.name, submitLabel: 'Catat waste',
+        fields: [
+          { name: 'qty', label: 'Jumlah', type: 'number', min: 0 },
+          { name: 'unit', label: 'Satuan', type: 'select', value: i.baseUnit, options: Inv.stock.units[i.baseUnit] },
+          { name: 'reason', label: 'Alasan', help: 'contoh: basi, jatuh, gosong, makan staf' }
+        ],
+        onSubmit: async function (v) {
+          await api('apiRecordWaste', App.token, { ingredientId: i.id, qty: v.qty, unit: v.unit, reason: v.reason });
+          toast('Waste tercatat');
+          stockView(Inv.stock.group);
+        }
+      });
+    },
+    count: function (el) {
+      const i = find(el.dataset.id);
+      openForm({
+        title: 'Stock opname: ' + i.name, submitLabel: 'Simpan hasil hitung',
+        fields: [
+          { name: 'countedQty', label: 'Stok hasil hitung (dalam ' + i.baseUnit + ')', type: 'number', min: 0, value: i.stock,
+            help: 'Di sistem sekarang: ' + humanQty(i.stock, i.baseUnit) },
+          { name: 'cost', label: 'Harga pokok per ' + i.purchaseUnit + ' (opsional, Rp)', type: 'money', value: '',
+            help: 'Hanya untuk mengisi harga awal sebelum ada pembelian. Kosongkan untuk memakai harga sekarang.' },
+          { name: 'reason', label: 'Catatan', value: 'Stock opname' }
+        ],
+        onSubmit: async function (v) {
+          await api('apiAdjustStock', App.token, { ingredientId: i.id, countedQty: v.countedQty, costPerPurchaseUnit: v.cost, reason: v.reason });
+          toast('Stok diperbarui');
+          stockView(Inv.stock.group);
+        }
+      });
+    }
+  });
+}
+</script>
