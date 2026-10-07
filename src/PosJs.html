@@ -708,6 +708,23 @@ function posAfterChange() {
   posRenderCart();
 }
 
+/** Reads one "uang diterima" box of a split part and shows its change. */
+function posReadPartInput(input) {
+  const row = input.closest('.part');
+  if (!row || !Pos.split) return;
+  const i = Number(row.dataset.i);
+  const part = Pos.split.parts[i];
+  if (!part) return;
+  part.cash = parseMoney(input.value);
+  const due = posTotals().parts[i].due;
+  const chg = part.cash - due;
+  const el = row.querySelector('.part-chg');
+  if (el) {
+    el.className = 'part-chg' + (part.cash && chg < 0 ? ' short' : '');
+    el.textContent = part.cash ? (chg < 0 ? 'Kurang ' + rp(-chg) : 'Kembali ' + rp(chg)) : '';
+  }
+}
+
 /* ---------- Split bill ---------- */
 function posSplitMenu() {
   if (!Pos.ctx || !Pos.canPay) return;
@@ -1103,6 +1120,8 @@ function newRef() {
 
 async function posComplete() {
   if (Pos.busy) return;
+  document.querySelectorAll('#splitParts .part-input').forEach(posReadPartInput);   // the latest typed amounts
+  if ($('cashInput') && !Pos.split && Pos.payment === 'CASH') Pos.cash = parseMoney($('cashInput').value);
   const err = posValidate();
   if (err) return posError(err);
   if (Pos.ctx && posIsDirty()) {          // new items / voids are saved first (and go to the kitchen)
@@ -1253,11 +1272,13 @@ function posBind() {
     if (m) { part.method = m.dataset.pm; part.cash = 0; posAfterChange(); return; }
     if (e.target.closest('[data-exact]')) { part.cash = posTotals().parts[Number(row.dataset.i)].due; posAfterChange(); }
   });
-  $('splitParts').addEventListener('change', function (e) {
+  // typing: update the amount and "Kembali" right away, without re-drawing (keeps the keyboard and the BAYAR tap working)
+  $('splitParts').addEventListener('input', function (e) {
     if (!e.target.classList.contains('part-input')) return;
-    const row = e.target.closest('.part');
-    Pos.split.parts[Number(row.dataset.i)].cash = parseMoney(e.target.value);
-    posAfterChange();
+    posReadPartInput(e.target);
+    if (e.target.value !== '') e.target.value = fmtNum(parseMoney(e.target.value));
+    posError('');
+    posSaveDraft();
   });
   $('shiftWarnBtn').addEventListener('click', function () { $('cartPanel').classList.remove('open'); shiftOpenPrompt(); });
   $('serviceToggle').addEventListener('change', function (e) {
