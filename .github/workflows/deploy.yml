@@ -1,0 +1,43 @@
+# Setiap kali kode di src/ berubah di branch main, kode dipasang ke Apps Script JayaPOS
+# dan link web app (/exec) diarahkan ke versi baru. Butuh 3 secret di repo:
+#   CLASPRC_JSON   isi file ~/.clasprc.json (hasil "npx @google/clasp@2.4.2 login" di laptop pemilik)
+#   SCRIPT_ID      Apps Script → Project Settings → Script ID
+#   DEPLOYMENT_ID  Apps Script → Deploy → Manage deployments → Deployment ID
+name: Pasang ke Apps Script
+on:
+  push:
+    branches: [main]
+    paths: ['src/**']
+  workflow_dispatch:
+concurrency: deploy
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Cek secrets
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+          DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ] || [ -z "$SCRIPT_ID" ] || [ -z "$DEPLOYMENT_ID" ]; then
+            echo "Secrets belum lengkap (CLASPRC_JSON, SCRIPT_ID, DEPLOYMENT_ID)."; exit 1; fi
+      - name: Siapkan clasp
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+        run: |
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          printf '{"scriptId":"%s","rootDir":"src"}' "$SCRIPT_ID" > .clasp.json
+      - name: Pasang kode
+        run: npx -y @google/clasp@2.4.2 push --force
+      - name: Deploy versi baru (link tetap sama)
+        env:
+          DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
+        run: |
+          VER=$(grep -o "APP_VERSION = '[0-9.]*'" src/Config.gs | grep -o "[0-9.]*[0-9]")
+          npx -y @google/clasp@2.4.2 deploy -i "$DEPLOYMENT_ID" -d "JayaPOS $VER (GitHub)"
