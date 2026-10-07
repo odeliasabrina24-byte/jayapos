@@ -391,7 +391,8 @@ input.q-val:focus { outline: 2px solid var(--brand); outline-offset: -2px; backg
 .pay-methods.compact { grid-template-columns: repeat(5, 1fr); gap: 4px; }
 .pay-methods.compact .pay-btn { min-height: 38px; font-size: 12px; padding: 0 2px; }
 .part-cash { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-.part-cash .money-input { flex: 1 1 120px; min-height: 40px; }
+.part-cash .money-input { flex: 1 1 120px; min-width: 0; min-height: 44px; font-size: 18px; font-weight: 700; }
+.part-cash .btn { flex: 0 0 auto; min-height: 44px; }
 .part-chg { font-weight: 700; font-size: 15px; flex: 1 0 100%; min-height: 20px; color: var(--ok); }
 .part-chg.short { color: var(--danger); }
 .shift-warn { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #fdecea; color: var(--danger);
