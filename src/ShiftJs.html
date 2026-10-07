@@ -2,7 +2,7 @@
 /* ================= ShiftJs: Kas & Shift (opening count, cash in/out, setor, blind close) ================= */
 
 const Sft = { data: null };
-const MOVE_LABELS = { CASH_IN: 'Kas masuk', CASH_OUT: 'Kas keluar', SETOR: 'Setor' };
+const MOVE_LABELS = { CASH_IN: 'Kas masuk', CASH_OUT: 'Kas keluar', SETOR: 'Setor tengah shift' };
 const MOVE_STATUS = { OK: ['Tercatat', 'muted'], PENDING: ['Menunggu konfirmasi', 'warn'], RECEIVED: ['Diterima', 'good'], REJECTED: ['Ditolak', 'bad'] };
 
 Views.shift = function () { shiftLoad(); };
@@ -52,9 +52,9 @@ function shiftRender() {
       '</div>' +
       (s.openingDiff ? '<p class="note-line">Modal awal ' + (s.openingDiff < 0 ? 'KURANG ' : 'LEBIH ') + rp(Math.abs(s.openingDiff)) +
         ' dari yang ditinggal shift sebelumnya (' + rp(s.previousLeft) + '). Owner & admin sudah diberi tahu.</p>' : '') +
-      (s.drawerFull ? '<p class="note-line">⚠ Uang tunai di laci sudah banyak. Segera setor ke owner/admin.</p>' : '') +
+      (s.drawerFull ? '<p class="note-line">⚠ Uang tunai di laci sudah banyak. Serahkan sebagian ke owner/admin lewat tombol "Setor tengah shift".</p>' : '') +
       (s.expected !== undefined ? '<div class="list-summary">Modal ' + rp(s.opening) + ' + penjualan tunai ' + rp(s.cashSales) + ' + kas masuk ' + rp(s.cashIn) +
-        ' − kas keluar ' + rp(s.cashOut) + ' − setor ' + rp(s.setor) + (s.setorPending ? ' (' + rp(s.setorPending) + ' belum dikonfirmasi)' : '') +
+        ' − kas keluar ' + rp(s.cashOut) + ' − setor tengah shift ' + rp(s.setor) + (s.setorPending ? ' (' + rp(s.setorPending) + ' belum dikonfirmasi)' : '') +
         ' = <b>' + rp(s.expected) + '</b></div>' +
         (s.byMethod.length ? '<div class="list-summary">Per metode: ' + s.byMethod.map(function (m) { return esc(m.label) + ' ' + rp(m.total) + ' (' + m.count + 'x)'; }).join(' · ') + '</div>' : '')
         : (s.nonCash.length ? '<div class="list-summary">' + s.nonCash.map(function (m) { return esc(m.label) + ' ' + rp(m.total) + ' (' + m.count + 'x)'; }).join(' · ') + '</div>' : '') +
@@ -62,7 +62,7 @@ function shiftRender() {
       (d.canManage ? '<div class="shift-actions">' +
         '<button class="btn" type="button" data-act="move" data-t="CASH_IN">+ Kas masuk</button>' +
         '<button class="btn" type="button" data-act="move" data-t="CASH_OUT">− Kas keluar</button>' +
-        '<button class="btn" type="button" data-act="move" data-t="SETOR">Setor ke owner</button>' +
+        '<button class="btn" type="button" data-act="move" data-t="SETOR">Setor tengah shift</button>' +
         '<button class="btn primary" type="button" data-act="close">Tutup shift</button></div>' : '') +
       '</div>';
     html += '<h3 class="sec-title">Kas masuk / keluar / setor shift ini</h3><div class="table-list">' +
@@ -88,7 +88,7 @@ function shiftRender() {
       { label: 'Seharusnya', fn: function (x) { return rp(x.expected); }, num: true },
       { label: 'Dihitung', fn: function (x) { return rp(x.counted); }, num: true },
       { label: 'Selisih', fn: function (x) { return '<span class="pill ' + (Math.abs(x.difference) > d.tolerance ? 'bad' : 'good') + '">' + rpSigned(x.difference) + '</span>'; }, num: true },
-      { label: 'Setor', fn: function (x) { return rp(x.finalSetor); }, num: true },
+      { label: 'Setor tutup', fn: function (x) { return rp(x.finalSetor); }, num: true },
       { label: '', fn: function (x) { return '<button class="link-btn small" type="button" data-act="detail" data-id="' + esc(x.id) + '">Detail</button>'; } }
     ], d.history, 'Belum ada shift yang ditutup.');
   }
@@ -127,7 +127,7 @@ function shiftCount(kind, opts) {
     '<div class="sum-row total"><span>Total dihitung</span><span id="cntTotal">Rp 0</span></div></div>' +
     (isClose ? '<label class="field"><span>Modal ditinggal di laci untuk shift berikutnya</span><input id="cntLeave" class="money-input" inputmode="numeric" autocomplete="off" value="' +
       fmtNum(Math.min(500000, d.shift ? d.shift.opening : 0)) + '"><span class="help">Sisanya disetor ke owner/admin (menunggu konfirmasi).</span></label>' +
-      '<div class="sum-row"><span>Setor</span><b id="cntSetor">Rp 0</b></div>' : '') +
+      '<div class="sum-row"><span>Setor tutup shift</span><b id="cntSetor">Rp 0</b></div>' : '') +
     '<label class="field"><span>Catatan (opsional)</span><input id="cntNote" maxlength="150" autocomplete="off"></label>';
   const denomTotal = function () {
     let t = 0;
@@ -228,11 +228,11 @@ function shiftResult(c) {
 
 function shiftMove(type) {
   const isOut = type === 'CASH_OUT';
-  const titles = { CASH_IN: 'Kas masuk (tambah uang ke laci)', CASH_OUT: 'Kas keluar (ambil uang dari laci)', SETOR: 'Setor tunai ke owner / admin' };
+  const titles = { CASH_IN: 'Kas masuk (tambah uang ke laci)', CASH_OUT: 'Kas keluar (ambil uang dari laci)', SETOR: 'Setor tengah shift (ke owner / admin)' };
   const help = {
     CASH_IN: 'Contoh: tambah uang kembalian dari owner.',
     CASH_OUT: 'Contoh: beli es batu, bayar parkir. Simpan nota/struknya. Owner & admin diberi tahu.',
-    SETOR: 'Uang diserahkan ke owner/admin. Statusnya "menunggu" sampai mereka konfirmasi sudah diterima.'
+    SETOR: 'Untuk mengurangi uang di laci saat shift masih berjalan (misalnya laci sudah terlalu penuh). Setor akhir hari tetap lewat Tutup shift. Statusnya "menunggu" sampai owner/admin konfirmasi sudah diterima.'
   };
   openForm({
     title: titles[type], submitLabel: 'Simpan',
@@ -286,7 +286,7 @@ async function shiftDetail(id) {
       '<div class="sum-row"><span>+ Penjualan tunai</span><span>' + rp(s.cashSales) + '</span></div>' +
       '<div class="sum-row"><span>+ Kas masuk</span><span>' + rp(s.cashIn) + '</span></div>' +
       '<div class="sum-row"><span>− Kas keluar</span><span>' + rp(s.cashOut) + '</span></div>' +
-      '<div class="sum-row"><span>− Setor selama shift</span><span>' + rp(s.setor) + '</span></div>' +
+      '<div class="sum-row"><span>− Setor tengah shift</span><span>' + rp(s.setor) + '</span></div>' +
       '<div class="sum-row total"><span>Seharusnya</span><span>' + rp(s.expected) + '</span></div>' +
       '<div class="sum-row"><span>Dihitung</span><b>' + rp(s.counted) + '</b></div>' +
       '<div class="sum-row"><span>Selisih</span><b class="' + (s.difference ? 'bad-text' : '') + '">' + rpSigned(s.difference) + '</b></div>' +

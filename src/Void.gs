@@ -18,7 +18,7 @@ const NOTIFY_TITLES = {
   SHIFT_OPEN_DIFF: 'Modal awal tidak sama',
   CASH_IN: 'Kas masuk',
   CASH_OUT: 'Kas keluar',
-  SETOR: 'Setor tunai (perlu konfirmasi)',
+  SETOR: 'Setor tengah shift (perlu konfirmasi)',
   SHIFT_CLOSED: 'Shift ditutup',
   SHIFT_DIFF: 'Shift ditutup — SELISIH KAS'
 };

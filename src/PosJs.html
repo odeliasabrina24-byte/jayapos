@@ -1174,7 +1174,7 @@ async function posComplete() {
     }
     showReceipt(receipt, { afterSale: true });
     if (receipt.alreadySaved) toast('Pesanan ini sudah tersimpan sebelumnya. Ini struk yang tersimpan.', 'warn');
-    else if (receipt.drawerFull) toast('Uang tunai di laci sudah banyak. Segera setor ke owner/admin (☰ → Kas & Shift).', 'warn');
+    else if (receipt.drawerFull) toast('Uang tunai di laci sudah banyak. Serahkan sebagian ke owner/admin: Kas & Shift → Setor tengah shift.', 'warn');
   } catch (e) {
     Pos.busy = false;
     if (e.code === 'STALE' && Pos.ctx) { posReloadBill(e.message); return; }

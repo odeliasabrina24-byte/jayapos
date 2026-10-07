@@ -215,7 +215,7 @@ function rpText_(n) {
   return (n < 0 ? '-Rp ' : 'Rp ') + String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
-const CASH_MOVE_WORDS = { CASH_IN: 'Kas masuk', CASH_OUT: 'Kas keluar', SETOR: 'Setor tunai' };
+const CASH_MOVE_WORDS = { CASH_IN: 'Kas masuk', CASH_OUT: 'Kas keluar', SETOR: 'Setor tengah shift' };
 
 /** Cash in / cash out / setor during the shift: data = { type, amount, reason } */
 function apiCashMove(token, data) {
