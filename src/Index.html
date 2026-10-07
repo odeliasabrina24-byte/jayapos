@@ -44,6 +44,9 @@
       </div>
     </header>
 
+    <div class="update-bar" id="updateBar" hidden>
+      <b>Ada versi baru JayaPOS.</b> Layar di HP ini masih versi lama. Tutup aplikasi sepenuhnya (geser ke atas dari daftar aplikasi yang terbuka), lalu buka lagi.
+    </div>
     <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
     <nav class="drawer" id="drawer">
       <div class="drawer-user" id="drawerUser"></div>
@@ -300,6 +303,7 @@
   <!-- Only this is printed -->
   <div id="printArea" class="print-area"></div>
 
+  <script>window.CLIENT_VERSION = '<?= clientVersion ?>';</script>
   <?!= include('AppJs'); ?>
   <?!= include('PosJs'); ?>
   <?!= include('TablesJs'); ?>

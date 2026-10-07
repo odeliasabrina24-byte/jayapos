@@ -10,14 +10,20 @@ function doGet() {
   try { autoMigrate_(); } catch (e) { console.error('autoMigrate_: ' + e); }
   let appName = 'JayaPOS';
   try { appName = getSettingsMap_().App_Name || appName; } catch (e) {}
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  const t = HtmlService.createTemplateFromFile('Index');
+  t.clientVersion = APP_VERSION;      // the phone compares this with the server to spot an old, cached screen
+  return t.evaluate()
     .setTitle(appName)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);   // lets the JayaPOS home-screen launcher (Netlify) show the app
 }
 
 /** Used by Index.html to pull in the other HTML files. */
+/** Current version on the server (no login needed). */
+function apiVersion() {
+  return run_(function () { return { version: APP_VERSION }; });
+}
+
 function include(name) {
   const allowed = ['Styles', 'AppJs', 'PosJs', 'TablesJs', 'HistoryJs', 'AdminJs', 'InventoryJs', 'PurchasingJs', 'ReportsJs', 'ShiftJs', 'KitchenJs', 'HomeJs'];
   if (allowed.indexOf(name) < 0) throw new Error('File tidak diizinkan: ' + name);

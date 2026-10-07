@@ -175,13 +175,25 @@ function startSession(s) {
   $('userChip').textContent = s.user.name;
   $('drawerUser').innerHTML = '<b>' + esc(s.user.name) + '</b><span>@' + esc(s.user.username) + ' · ' + esc(roleLabel(s.user.role)) + '</span>';
   App.version = s.version;
-  $('appVersion').textContent = 'JayaPOS v' + s.version;
+  $('appVersion').textContent = 'JayaPOS v' + s.version + (isStale(s.version) ? ' (layar v' + window.CLIENT_VERSION + ')' : '');
+  checkVersion(s.version);
   renderNav();
   renderTabs();
   setUnread(s.unreadNotifications || 0);
   startBell();
   go(defaultView());
 }
+
+/* ================= OLD SCREEN CHECK ================= */
+function isStale(serverVersion) {
+  const c = window.CLIENT_VERSION;
+  return !!(serverVersion && c && c.indexOf('<?') < 0 && serverVersion !== c);
+}
+function checkVersion(serverVersion) { $('updateBar').hidden = !isStale(serverVersion); }
+document.addEventListener('visibilitychange', async function () {
+  if (document.hidden || !App.token) return;
+  try { const v = await api('apiVersion'); checkVersion(v.version); } catch (e) {}
+});
 
 function clearSession() {
   App.token = null;
