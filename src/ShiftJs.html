@@ -110,16 +110,19 @@ function shiftCount(kind, opts) {
   const isClose = kind === 'close';
   let mode = 'TOTAL';
   try { if (store.get('jaya_count_mode') === 'DENOM') mode = 'DENOM'; } catch (e) {}
+  const expected = !isClose && d.lastClosed ? Number(d.lastClosed.leftForNext) || 0 : null;
   const html = (opts.intro ? '<p class="note-line">' + esc(opts.intro) + '</p>' : '') +
     '<p class="small">' + (isClose
       ? 'Hitung SEMUA uang tunai di laci sekarang. Jangan menebak — tulis apa adanya. Sistem akan membandingkan dengan catatan penjualan.'
       : 'Hitung semua uang di laci sebelum menerima pembayaran pertama.') + '</p>' +
+    (expected !== null ? '<div class="carry-hint">Shift terakhir meninggalkan <b>' + rp(expected) + '</b> di laci. ' +
+      'Hitung uang yang ada sekarang; jika kurang dari itu, tulis alasannya di Catatan.</div>' : '') +
     (isClose && d.openBills ? '<p class="note-line">Masih ada ' + d.openBills + ' meja dengan bill terbuka. Boleh tetap tutup shift; bill itu nanti dibayar di shift berikutnya.</p>' : '') +
     '<div class="seg wide cnt-mode" role="tablist">' +
       '<button type="button" class="seg-btn" data-mode="TOTAL">Total uang</button>' +
       '<button type="button" class="seg-btn" data-mode="DENOM">Per pecahan</button></div>' +
     '<div id="cntTotalBox"><label class="field"><span>Total uang di laci (Rp)</span>' +
-      '<input id="cntTotalIn" class="money-input big-money" inputmode="numeric" autocomplete="off" placeholder="0"></label></div>' +
+      '<input id="cntTotalIn" class="money-input big-money" inputmode="numeric" autocomplete="off" placeholder="' + (expected !== null ? fmtNum(expected) : '0') + '"></label></div>' +
     '<div id="cntDenomBox"><div class="denoms">' + d.denoms.map(function (n) {
       return '<label class="denom"><span>Rp ' + denomLabel(n) + (n < 1000 ? ' <i>koin</i>' : '') + '</span>' +
         '<input type="number" inputmode="numeric" min="0" step="1" data-d="' + n + '" placeholder="0"><b data-sub="' + n + '">Rp 0</b></label>';
@@ -128,7 +131,8 @@ function shiftCount(kind, opts) {
     (isClose ? '<label class="field"><span>Modal ditinggal di laci untuk shift berikutnya</span><input id="cntLeave" class="money-input" inputmode="numeric" autocomplete="off" value="' +
       fmtNum(Math.min(500000, d.shift ? d.shift.opening : 0)) + '"><span class="help">Sisanya disetor ke owner/admin (menunggu konfirmasi).</span></label>' +
       '<div class="sum-row"><span>Setor tutup shift</span><b id="cntSetor">Rp 0</b></div>' : '') +
-    '<label class="field"><span>Catatan (opsional)</span><input id="cntNote" maxlength="150" autocomplete="off"></label>';
+    '<div id="cntWarn" class="note-line" hidden></div>' +
+    '<label class="field"><span id="cntNoteLbl">Catatan (opsional)</span><input id="cntNote" maxlength="150" autocomplete="off"></label>';
   const denomTotal = function () {
     let t = 0;
     document.querySelectorAll('.denoms input[data-d]').forEach(function (i) {
@@ -141,6 +145,20 @@ function shiftCount(kind, opts) {
   const total = function () { return mode === 'TOTAL' ? parseMoney($('cntTotalIn').value) : denomTotal(); };
   const paint = function () {
     const t = total();
+    if (expected !== null) {
+      const w = $('cntWarn');
+      const short = t > 0 && t < expected;
+      const lbl = $('cntNoteLbl');
+      w.hidden = !(t > 0 && t !== expected);
+      if (short) {
+        w.className = 'note-line short-warn';
+        w.textContent = 'Kurang ' + rp(expected - t) + ' dari yang ditinggal shift terakhir. Tulis alasannya di Catatan (wajib).';
+      } else if (t > expected) {
+        w.className = 'note-line';
+        w.textContent = 'Lebih ' + rp(t - expected) + ' dari yang ditinggal shift terakhir.';
+      }
+      lbl.textContent = short ? 'Alasan uang kurang (wajib)' : 'Catatan (opsional)';
+    }
     if (mode === 'DENOM') $('cntTotal').textContent = rp(t);
     if (isClose) $('cntSetor').textContent = rp(Math.max(0, t - parseMoney($('cntLeave').value)));
   };
@@ -191,6 +209,9 @@ function shiftCount(kind, opts) {
         setTimeout(function () { shiftResult(r.closed); }, 60);   // after this form has closed
       } else {
         if (!t && !confirm('Modal awal Rp 0 (laci kosong)?')) throw new Error('Isi jumlah uang di laci.');
+        if (expected !== null && t < expected && payload.note.length < 3) {
+          throw new Error('Uang kurang ' + rp(expected - t) + ' dari yang ditinggal shift terakhir. Tulis alasannya di Catatan.');
+        }
         Sft.data = await api('apiOpenShift', App.token, payload);
         if (typeof Pos !== 'undefined') Pos.shift.open = true;
         if (App.view === 'shift') shiftRender();

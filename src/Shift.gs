@@ -190,6 +190,9 @@ function apiOpenShift(token, data) {
       const last = lastClosedShift_();
       const prev = last ? last.leftForNext : null;
       const diff = prev === null ? 0 : c.total - prev;
+      if (diff < 0 && note.length < 3) {
+        throw new Error('Uang kurang ' + rpText_(-diff) + ' dari yang ditinggal shift sebelumnya (' + rpText_(prev) + '). Tulis alasannya di Catatan (minimal 3 huruf).');
+      }
       const now = new Date();
       const dateKey = fmt_(now, 'yyyyMMdd');
       const id = 'SH-' + dateKey + '-' + String(nextSeq_('SHSEQ_' + dateKey, 1) + 1).padStart(2, '0');
