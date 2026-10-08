@@ -116,6 +116,20 @@ function extraOptions() {
   };
 }
 
+/** Hides the main role from the extra-role choices, so one role is never picked twice. */
+function syncExtraRoles() {
+  const primary = $('ff_role') ? $('ff_role').value : '';
+  $('formBody').querySelectorAll('[data-multi="extraRoles"]').forEach(function (c) {
+    const hide = c.value === primary;
+    if (hide) c.checked = false;
+    c.closest('label').style.display = hide ? 'none' : '';
+  });
+}
+function watchPrimaryRole() {
+  $('formBody').onchange = function (e) { if (e.target.id === 'ff_role') syncExtraRoles(); };
+  syncExtraRoles();
+}
+
 function userAdd() {
   const x = extraOptions();
   openForm({
@@ -134,6 +148,7 @@ function userAdd() {
       Views.users();
     }
   });
+  watchPrimaryRole();
 }
 
 function userEdit(u) {
@@ -155,6 +170,7 @@ function userEdit(u) {
       Views.users();
     }
   });
+  watchPrimaryRole();
 }
 
 function userPin(u) {
