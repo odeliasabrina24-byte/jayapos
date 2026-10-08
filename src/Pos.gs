@@ -420,6 +420,8 @@ function apiCompleteOrder(token, order) {
         txId = prefix + '-' + dateKey + '-' + String(seq).padStart(4, '0');
       } while (getTransactionById_(txId)); // extra guard if the counter was ever reset
       props.setProperty(seqKey, String(seq));
+      // Takeaway number for the kitchen, serve screen and receipt: TA-001, TA-002, … (restarts every day)
+      const taNo = bill ? '' : nextTakeawayNo_(dateKey);
 
       const priorPaid = bill ? bill.paidTx.length : 0;
       const partial = !!(picked && picked.rest.length);
@@ -436,7 +438,7 @@ function apiCompleteOrder(token, order) {
         Subtotal: tot.subtotal, Discount: tot.discount, Grand_Total: tot.grand, Payment_Method: method,
         Amount_Paid: paidTotal, Change: changeTotal, Status: 'COMPLETED', Cashier_ID: user.id,
         Timestamp: stamp, Client_Ref: clientRef, Outlet_ID: settings.Outlet_ID || '', Notes: '',
-        Order_Type: bill ? 'DINE_IN' : 'TAKEAWAY', Table_Name: bill ? bill.tableName : '',
+        Order_Type: bill ? 'DINE_IN' : 'TAKEAWAY', Table_Name: bill ? bill.tableName : taNo,
         Pax: bill ? (priorPaid ? 0 : bill.pax) : '',
         Service_Charge: tot.service, Tax: tot.tax, Order_ID: bill ? bill.id : '',
         Item_Discount: tot.itemDiscount, Bill_Discount: tot.billDiscount, Bill_Discount_Info: discountInfo_(billDisc),
@@ -470,7 +472,7 @@ function apiCompleteOrder(token, order) {
       SpreadsheetApp.flush();
       CacheService.getScriptCache().put('ref_' + clientRef, txId, 21600);
       if (!bill) {
-        createTicket_({ orderId: txId, tableName: 'Takeaway', guest: guest, round: 1, kind: 'ORDER', user: user },
+        createTicket_({ orderId: txId, tableName: taNo, guest: guest, round: 1, kind: 'ORDER', user: user },
                       lines.map(function (l) { return { id: l.productId, name: l.name, qty: l.qty, note: l.note, grp: l.group, mods: l.mods }; }), products);
       }
       try { inventoryOnSale_(txId, stockLines_(lines), user, rdata); }
@@ -694,6 +696,15 @@ function apiSetSoldOut(token, productId, soldOut, reason) {
                at: on ? (p.soldOut ? p.soldOutAt : nowStamp_()).slice(0, 16) : '', reason: shown };
     });
   });
+}
+
+/** Next takeaway number of the day: TA-001, TA-002, … Called while the payment lock is held. */
+function nextTakeawayNo_(dateKey) {
+  const props = PropertiesService.getScriptProperties();
+  const key = 'TASEQ_' + dateKey;
+  const n = Number(props.getProperty(key) || 0) + 1;
+  props.setProperty(key, String(n));
+  return 'TA-' + String(n).padStart(3, '0');
 }
 
 /** Numbers for the cashier home screen. */

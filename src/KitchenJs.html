@@ -144,7 +144,7 @@ function kitCard(t, done) {
   const head = '<div class="tk-head"><div><span class="tk-table">' + esc(t.table || '-') + '</span>' +
     (t.guest ? '<span class="tk-guest">' + esc(t.guest) + '</span>' : '') + '</div>' +
     '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ keluar ' + esc(t.doneAt) + (t.serveMin != null ? ' · ' + t.serveMin + ' mnt' : '') + servedTag : esc(age.text)) + '</span></div>' +
-    '<div class="tk-meta">' + (isVoid ? '<b>BATAL</b>' : (t.table === 'Takeaway' ? 'Takeaway' : 'Pesanan ' + t.round)) + ' · ' + esc(t.time) +
+    '<div class="tk-meta">' + (isVoid ? '<b>BATAL</b>' : (/^TA-|^Takeaway$/.test(t.table) ? 'Takeaway' : 'Pesanan ' + t.round)) + ' · ' + esc(t.time) +
     (t.by ? ' · ' + esc(t.by) : '') + '</div>';
   const eff = function (i) { const p = Kit.pend[kitPendKey(t.id, i.idx)]; return p === undefined ? i.rdy : p; };
   const dirty = !done && !isVoid && t.items.some(function (i) { return Kit.pend[kitPendKey(t.id, i.idx)] !== undefined; });

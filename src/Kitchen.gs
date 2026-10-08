@@ -272,9 +272,21 @@ function serveTickets_(orders) {
   const yesterday = addDays_(todayStr_(), -1);
   return readRecentRows_('Kitchen_Tickets', 400).filter(function (r) {
     if (!r.Ticket_ID || String(r.Kind || '') !== 'ORDER') return false;
-    const o = orders[String(r.Order_ID || '')];
-    return !!o && (o.status === 'OPEN' || dateText_(r.Date) >= yesterday);
+    const id = String(r.Order_ID || '');
+    const recent = dateText_(r.Date) >= yesterday;
+    // Takeaway (TA-001, …) has no open table bill: it is served from its own ticket, today or yesterday
+    if (!orders[id] && isTakeawayTicket_(r) && recent) {
+      orders[id] = { id: id, tableName: String(r.Table_Name || ''), guestName: String(r.Guest_Name || ''), pax: 0, status: 'TAKEAWAY' };
+    }
+    const o = orders[id];
+    return !!o && (o.status === 'OPEN' || o.status === 'TAKEAWAY' || recent);
   }).sort(function (a, b) { return (Number(a.Created_Ms) || 0) - (Number(b.Created_Ms) || 0); });
+}
+
+/** Takeaway tickets carry their number (TA-001) or the old label "Takeaway" as table name. */
+function isTakeawayTicket_(r) {
+  const t = String(r.Table_Name || '');
+  return /^TA-\d+$/.test(t) || t === 'Takeaway';
 }
 
 /** Serve board: ready / cooking / all rounds. Shared by the Siap diantar screen and the Beranda count. */

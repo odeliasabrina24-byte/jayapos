@@ -357,7 +357,7 @@ function receiptHtml(r) {
   if (h.phone) s += '<div class="r-center">' + esc(h.phone) + '</div>';
   s += '<div class="r-hr"></div>';
   s += row('No.', r.id) + row('Tanggal', r.dateLabel) + row('Jam', r.time) + row('Kasir', r.cashier);
-  s += r.tableName ? row('Meja', r.tableName + (r.pax ? ' · ' + r.pax + ' pax' : '')) : row('Pesanan', 'Takeaway');
+  s += r.tableName && !/^TA-/.test(r.tableName) ? row('Meja', r.tableName + (r.pax ? ' · ' + r.pax + ' pax' : '')) : row('Takeaway', r.tableName || '-');
   if (r.guestName) s += row('Tamu', r.guestName);
   if (r.splitInfo) s += row('Split', r.splitInfo);
   s += '<div class="r-hr"></div>';
@@ -422,7 +422,7 @@ function receiptText(r) {
   if (h.address) out.push(center(h.address));
   if (h.phone) out.push(center(h.phone));
   out.push(hr, lr('No.', r.id), lr('Tanggal', r.dateLabel), lr('Jam', r.time), lr('Kasir', r.cashier));
-  out.push(r.tableName ? lr('Meja', r.tableName + (r.pax ? ' / ' + r.pax + ' pax' : '')) : lr('Pesanan', 'Takeaway'));
+  out.push(r.tableName && !/^TA-/.test(r.tableName) ? lr('Meja', r.tableName + (r.pax ? ' / ' + r.pax + ' pax' : '')) : lr('Takeaway', r.tableName || '-'));
   if (r.guestName) out.push(lr('Tamu', r.guestName));
   if (r.splitInfo) out.push(lr('Split', r.splitInfo));
   out.push(hr);
