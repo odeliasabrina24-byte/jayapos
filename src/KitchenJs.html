@@ -63,7 +63,7 @@ document.addEventListener('touchend', function (e) {
   if (!s || App.view !== 'bar_orders' || !App.nav.some(function (n) { return n.id === 'serve'; })) return;
   const t = e.changedTouches[0];
   const dx = t.clientX - s.x, dy = t.clientY - s.y;
-  if (dx < -80 && Math.abs(dy) < 60 && Date.now() - s.at < 700) go('serve');
+  if (dx < -60 && Math.abs(dy) < 70 && Date.now() - s.at < 900) go('serve');
 }, { passive: true });
 
 function kitShow(station) {
