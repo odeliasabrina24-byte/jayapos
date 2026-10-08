@@ -235,6 +235,8 @@ function setupDatabase_() {
     .map(function (d) { return { Setting: d[0], Value: d[1], Description: d[2] }; }));
   SETTINGS_CACHE_ = null;
 
+  applyStaffRolesOnce_();
+
   if (readTable_('Products').rows.length === 0) {
     appendObjects_('Products', SAMPLE_PRODUCTS.map(function (p) {
       return { Product_ID: p[0], Product_Name: p[1], Category: p[2], Selling_Price: p[3], Cost: p[4],
@@ -256,6 +258,38 @@ function setupDatabase_() {
 
   audit_(null, 'SETUP', 'System', '', 'Database setup / repair, version ' + APP_VERSION);
   PropertiesService.getScriptProperties().setProperty('SCHEMA_VERSION', APP_VERSION);
+}
+
+/**
+ * Puts the agreed staff roles (STAFF_ROLES in Config.gs) on the Users sheet. Runs ONCE.
+ * A person is matched by Username, or else by the first word of Full_Name.
+ * Later changes are made in the app (Admin > Pengguna), not by this function.
+ */
+function applyStaffRolesOnce_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('STAFF_ROLES_APPLIED')) return null;
+  const has = function (obj, k) { return Object.prototype.hasOwnProperty.call(obj, k); };
+  const found = {};
+  const changed = [];
+  readTable_('Users').rows.forEach(function (r) {
+    const uname = String(r.Username || '').trim().toLowerCase();
+    const first = String(r.Full_Name || '').trim().toLowerCase().split(/\s+/)[0] || '';
+    const key = has(STAFF_ROLES, uname) ? uname : (has(STAFF_ROLES, first) ? first : '');
+    if (!key || found[key]) return;
+    found[key] = true;
+    const want = STAFF_ROLES[key];
+    updateRow_('Users', r._row, {
+      Role: want.role,
+      Extra_Roles: want.extraRoles.join(', '),
+      Extra_Perms: want.extraPerms.join(', '),
+      Updated_At: nowStamp_()
+    });
+    changed.push(uname);
+  });
+  const missing = Object.keys(STAFF_ROLES).filter(function (k) { return !found[k]; });
+  props.setProperty('STAFF_ROLES_APPLIED', nowStamp_());
+  audit_(null, 'STAFF_ROLES_APPLIED', 'System', '', { changed: changed, missing: missing });
+  return { changed: changed, missing: missing };
 }
 
 function ensureSheet_(ss, name, schema) {

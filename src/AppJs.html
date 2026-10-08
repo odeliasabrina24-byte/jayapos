@@ -172,8 +172,10 @@ function startSession(s) {
   store.set('jaya_token', s.token);
   $('loginView').hidden = true;
   $('appView').hidden = false;
-  $('userChip').textContent = s.user.name;
-  $('drawerUser').innerHTML = '<b>' + esc(s.user.name) + '</b><span>@' + esc(s.user.username) + ' · ' + esc(roleLabel(s.user.role)) + '</span>';
+  // Name first (short: first word), then what this account may do
+  $('userChip').textContent = String(s.user.name).split(/\s+/)[0];
+  $('drawerUser').innerHTML = '<b>' + esc(s.user.name) + '</b><span>@' + esc(s.user.username) + ' · ' +
+    esc(s.user.roleText || roleLabel(s.user.role)) + '</span>';
   App.version = s.version;
   $('appVersion').textContent = 'JayaPOS v' + s.version + (isStale(s.version) ? ' (layar v' + window.CLIENT_VERSION + ')' : '');
   checkVersion(s.version);
@@ -560,6 +562,14 @@ function fieldHtml(f) {
   if (f.type === 'checkbox') {
     return '<label class="field check"><input type="checkbox" id="' + id + '"' + (v ? ' checked' : '') + '><span>' + esc(f.label) + '</span></label>';
   }
+  if (f.type === 'multi') {   // several checkboxes; value = array of chosen values
+    const chosen = Array.isArray(v) ? v.map(String) : [];
+    return '<div class="field"><span>' + esc(f.label) + '</span><div class="multi-field">' +
+      f.options.map(function (o) {
+        return '<label class="field check"><input type="checkbox" data-multi="' + esc(f.name) + '" value="' + esc(o.value) + '"' +
+          (chosen.indexOf(String(o.value)) >= 0 ? ' checked' : '') + '><span>' + esc(o.label) + '</span></label>';
+      }).join('') + '</div>' + help + '</div>';
+  }
   if (f.type === 'number') {
     return '<label class="field"><span>' + esc(f.label) + '</span><input id="' + id + '" type="number" inputmode="decimal" step="any" min="' +
       (f.min == null ? '' : f.min) + '" max="' + (f.max == null ? '' : f.max) + '" value="' + esc(v) + '">' + help + '</label>';
@@ -599,8 +609,10 @@ function openForm(cfg) {
     const values = {};
     cfg.fields.forEach(function (f) {
       const el = $('ff_' + f.name);
-      if (!el) return;
+      if (!el && f.type !== 'multi') return;
       if (f.type === 'checkbox') values[f.name] = el.checked;
+      else if (f.type === 'multi') values[f.name] = Array.prototype.filter.call(
+        fb.querySelectorAll('[data-multi="' + f.name + '"]'), function (c) { return c.checked; }).map(function (c) { return c.value; });
       else if (f.type === 'number') values[f.name] = el.value.trim() === '' ? null : Number(el.value);
       else if (f.type === 'image') values[f.name] = { dataUrl: el._dataUrl || null, remove: !!($(el.id + '_rm') && $(el.id + '_rm').checked) };
       else if (f.type === 'money') values[f.name] = el.value.trim() === '' ? null : parseMoney(el.value);

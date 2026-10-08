@@ -46,7 +46,7 @@ function uniq_(arr) { return arr.filter(function (v, i) { return arr.indexOf(v) 
 
 /** Which ingredient groups a user may see / change. */
 function ingredientAccess_(user) {
-  const r = user.role;
+  const r = user;
   if (hasPerm_(r, '*') || hasPerm_(r, 'ingredients.purchasing')) return { view: INGREDIENT_GROUPS.slice(), edit: INGREDIENT_GROUPS.slice() };
   let view = [], edit = [];
   ['food', 'beverage'].forEach(function (g) {
@@ -59,7 +59,7 @@ function ingredientAccess_(user) {
 }
 
 function canRecipe_(user, group, kind) {   // kind: 'edit' | 'view'
-  const r = user.role;
+  const r = user;
   if (hasPerm_(r, '*')) return true;
   const g = group === 'BEVERAGE' ? 'beverage' : (group === 'FOOD' ? 'food' : '');
   if (!g) return false;
@@ -68,7 +68,7 @@ function canRecipe_(user, group, kind) {   // kind: 'edit' | 'view'
 }
 
 function canStock_(user, group, kind) {    // kind: 'view' | 'waste'
-  const r = user.role;
+  const r = user;
   if (hasPerm_(r, '*')) return true;
   if (kind === 'view' && hasPerm_(r, 'inventory.view')) return true;
   if (group === 'SHARED') return hasPerm_(r, 'stock.food') || hasPerm_(r, 'stock.beverage');
@@ -269,7 +269,7 @@ function apiGetIngredients(token) {
                  value: Math.round(Math.max(0, i.stock) * i.cost), low: i.active && i.minStock > 0 && i.stock < i.minStock };
       }),
       editGroups: acc.edit,
-      canAdjust: hasPerm_(user.role, '*'),
+      canAdjust: hasPerm_(user, '*'),
       units: publicUnits_(),
       suppliers: suppliersList_().filter(function (s) { return s.active; }).map(function (s) { return { id: s.id, name: s.name }; })
     };
@@ -378,7 +378,7 @@ function apiSaveRecipe(token, d) {
     const lines = d.lines.map(function (l, idx) {
       const ing = ings[String(l && l.ingredientId || '')];
       if (!ing || !ing.active) throw new Error('Baris ' + (idx + 1) + ': pilih bahan.');
-      if (!hasPerm_(user.role, '*') && ing.group !== group && ing.group !== 'SHARED') {
+      if (!hasPerm_(user, '*') && ing.group !== group && ing.group !== 'SHARED') {
         throw new Error(ing.name + ' adalah bahan ' + groupWord_(ing.group) + ' dan tidak bisa dipakai di resep ' + groupWord_(group) + '.');
       }
       if (seen[ing.id]) throw new Error(ing.name + ' muncul dua kali. Tulis jumlah totalnya di satu baris.');
@@ -465,7 +465,7 @@ function apiGetStock(token, group) {
     const user = requireSession_(token);
     group = String(group || 'ALL').toUpperCase();
     const groups = group === 'ALL' ? INGREDIENT_GROUPS : [group, 'SHARED'];
-    if (group === 'ALL' ? !(hasPerm_(user.role, '*') || hasPerm_(user.role, 'inventory.view')) : !canStock_(user, group, 'view')) {
+    if (group === 'ALL' ? !(hasPerm_(user, '*') || hasPerm_(user, 'inventory.view')) : !canStock_(user, group, 'view')) {
       throw jayaError_('Akses ditolak. Role Anda tidak boleh melihat stok ini.', 'DENIED');
     }
     const list = ingredientsList_().filter(function (i) { return i.active && groups.indexOf(i.group) >= 0; });
@@ -488,7 +488,7 @@ function apiGetStock(token, group) {
                  canWaste: canStock_(user, i.group, 'waste') };
       }),
       movements: movements,
-      canAdjust: hasPerm_(user.role, '*'),
+      canAdjust: hasPerm_(user, '*'),
       units: publicUnits_()
     };
   });

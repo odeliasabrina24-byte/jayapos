@@ -69,7 +69,7 @@ function menuSetup() {
   const ui = sheetUi_();
   setupDatabase_();
   const users = getUsers_();
-  const hasAdmin = users.some(function (u) { return u.role === 'ADMIN' && u.active && u.hash; });
+  const hasAdmin = users.some(function (u) { return hasPerm_(u, '*') && u.active && u.hash; });
   let msg = 'Database JayaPOS siap (versi ' + APP_VERSION + ').\n\n';
   if (!hasAdmin) {
     const pin = askText_(ui, 'Buat user ADMIN',

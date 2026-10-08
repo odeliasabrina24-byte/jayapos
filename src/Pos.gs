@@ -240,7 +240,7 @@ function priceLines_(parsed, fallback, products) {
 /** Cashiers may give at most Max_Discount_Percent of the order (admin: no limit). */
 function checkDiscountAllowed_(user, tot, lines, billDisc) {
   const settings = getSettingsMap_();
-  const isAdmin = hasPerm_(user.role, '*');
+  const isAdmin = hasPerm_(user, '*');
   const any = tot.discount > 0;
   if (any && !isAdmin && !isTrue_(settings.Allow_Discount)) throw new Error('Diskon dimatikan untuk kasir. Minta admin.');
   if (billDisc && billDisc.type === 'AMT' && billDisc.value > tot.itemsNet) throw new Error('Diskon bill lebih besar dari subtotal.');
@@ -255,8 +255,8 @@ function apiGetPosData(token) {
   return run_(function () {
     const user = requirePerm_(token, ['pos.sell', 'pos.order']);
     const s = getSettingsMap_();
-    const isAdmin = hasPerm_(user.role, '*');
-    const canPay = hasPerm_(user.role, 'pos.sell');
+    const isAdmin = hasPerm_(user, '*');
+    const canPay = hasPerm_(user, 'pos.sell');
     let shiftOpen = false;
     try { shiftOpen = !!currentShift_(); } catch (e) { shiftOpen = false; }
     return {
@@ -270,7 +270,7 @@ function apiGetPosData(token) {
       quickNotes: listSetting_('Quick_Notes').slice(0, 20),
       modifierCategory: modifierCategory_(),
       canPay: canPay,
-      shift: { required: isTrue_(s.Require_Shift), open: shiftOpen, canManage: hasPerm_(user.role, 'shift.manage') },
+      shift: { required: isTrue_(s.Require_Shift), open: shiftOpen, canManage: hasPerm_(user, 'shift.manage') },
       charges: chargeSettings_()
     };
   });
@@ -713,7 +713,7 @@ function apiGetHome(token) {
     } catch (e) { kitchen = 0; }
     return {
       business: s.Business_Name || '', user: user.name, shiftRequired: isTrue_(s.Require_Shift), shift: shift,
-      canManageShift: hasPerm_(user.role, 'shift.manage'), tables: tables, busy: busy, openAmount: openAmount,
+      canManageShift: hasPerm_(user, 'shift.manage'), tables: tables, busy: busy, openAmount: openAmount,
       soldOut: soldOut, kitchen: kitchen
     };
   });

@@ -162,7 +162,7 @@ function pct_(a, b) { return b ? Math.round(a / b * 1000) / 10 : 0; }
 
 /** Earliest date this user may see. Cashiers only see recent days. */
 function historyStart_(user) {
-  if (hasPerm_(user.role, 'history.view_all')) return '0000-00-00';
+  if (hasPerm_(user, 'history.view_all')) return '0000-00-00';
   const days = Math.max(1, parseInt(getSettingsMap_().Cashier_History_Days, 10) || 2);
   return addDays_(todayStr_(), -(days - 1));
 }
@@ -174,7 +174,7 @@ function apiGetSalesHistory(token, filter) {
     const earliest = historyStart_(user);
     let limited = false;
     if (r.from < earliest) { r.from = earliest; limited = true; }
-    const showTotals = hasPerm_(user.role, 'history.view_all');
+    const showTotals = hasPerm_(user, 'history.view_all');
     if (r.to < r.from) return { from: r.from, to: r.to, limited: true, count: 0, total: null, rows: [], truncated: false };
 
     const rows = readSince_('Transactions', 'Date', r.from).map(txFromRow_)
@@ -205,7 +205,7 @@ function apiGetReceipt(token, txId) {
     if (!/^[A-Z]{1,5}-\d{8}-\d{4,}$/.test(txId)) throw new Error('Nomor transaksi tidak valid.');
     const r = buildReceipt_(txId);
     if (r.date < historyStart_(user)) throw jayaError_('Akses ditolak. Transaksi ini terlalu lama untuk role Anda.', 'DENIED');
-    r.canVoid = r.status === 'COMPLETED' && hasPerm_(user.role, 'pos.void') && r.date >= voidStart_(user);
+    r.canVoid = r.status === 'COMPLETED' && hasPerm_(user, 'pos.void') && r.date >= voidStart_(user);
     return r;
   });
 }
@@ -234,7 +234,7 @@ function apiGetDashboard(token, filter) {
       return { date: day, label: dateLabel_(day).slice(0, 6), net: dn, gp: dn - dc, count: dt.length };
     }) : [];
     const s = getSettingsMap_();
-    const showProfit = hasPerm_(user.role, 'reports.view');
+    const showProfit = hasPerm_(user, 'reports.view');
     return {
       from: r.from, to: r.to,
       sales: sales,

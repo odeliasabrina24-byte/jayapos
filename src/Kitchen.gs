@@ -325,9 +325,9 @@ function apiKitchenCount(token) {
       return r.Ticket_ID && dateText_(r.Date) >= yesterday;
     });
     const out = { FOOD: null, BAR: null, late: 0, READY: null };
-    if (hasPerm_(user.role, 'kitchen.food')) out.FOOD = 0;
-    if (hasPerm_(user.role, 'kitchen.bar')) out.BAR = 0;
-    if (hasPerm_(user.role, 'tables.serve')) {
+    if (hasPerm_(user, 'kitchen.food')) out.FOOD = 0;
+    if (hasPerm_(user, 'kitchen.bar')) out.BAR = 0;
+    if (hasPerm_(user, 'tables.serve')) {
       const km = kitchenStateMap_();
       out.READY = openOrders_().reduce(function (s, o) { return s + countReady_(km[o.id]); }, 0);
     }

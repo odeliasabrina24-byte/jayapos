@@ -45,7 +45,7 @@ function notify_(user, type, refId, tableName, amount, reason, details) {
 
 /** Earliest date a user may void a paid transaction. */
 function voidStart_(user) {
-  if (hasPerm_(user.role, '*')) return '0000-00-00';
+  if (hasPerm_(user, '*')) return '0000-00-00';
   const days = Math.max(1, parseInt(getSettingsMap_().Cashier_Void_Days, 10) || 1);
   return addDays_(todayStr_(), -(days - 1));
 }
@@ -149,7 +149,7 @@ function apiGetNotifications(token, filter) {
 function apiNotificationCount(token) {
   return run_(function () {
     const user = requireSession_(token);
-    if (!hasPerm_(user.role, 'notifications.view')) return { unread: 0 };
+    if (!hasPerm_(user, 'notifications.view')) return { unread: 0 };
     return { unread: notifUnreadCount_() };
   });
 }

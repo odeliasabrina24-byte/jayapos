@@ -53,6 +53,17 @@ function checkPinFormat_(pin) {
 
 // ---------------- Users ----------------
 
+/** Upper-case role code; the old role SERVER is now CASHIER. */
+function normRole_(r) {
+  const x = String(r == null ? '' : r).trim().toUpperCase();
+  return x === 'SERVER' ? 'CASHIER' : x;
+}
+
+/** "A, B;C" -> ['A','B','C'] */
+function listOf_(v) {
+  return String(v == null ? '' : v).split(/[,;]/).map(function (s) { return s.trim(); }).filter(String);
+}
+
 function getUsers_() {
   let rows = readTable_('Users').rows;
   const pending = rows.some(function (r) {
@@ -64,12 +75,17 @@ function getUsers_() {
     rows = readTable_('Users').rows;
   }
   return rows.map(function (r) {
+    const role = normRole_(r.Role);
     return {
       row: r._row,
       id: String(r.User_ID).trim(),
       name: String(r.Full_Name).trim(),
       username: String(r.Username).trim().toLowerCase(),
-      role: String(r.Role).trim().toUpperCase(),
+      role: role,
+      extraRoles: listOf_(r.Extra_Roles).map(normRole_).filter(function (x, i, a) {
+        return EXTRA_ROLES.indexOf(x) >= 0 && x !== role && a.indexOf(x) === i;
+      }),
+      extraPerms: listOf_(r.Extra_Perms).filter(function (p) { return EXTRA_PERMS.indexOf(p) >= 0; }),
       hash: String(r.PIN_Hash || '').trim(),
       salt: String(r.PIN_Salt || '').trim(),
       active: isTrue_(r.Active_Status)
@@ -114,7 +130,7 @@ function processUserSheet_() {
     const nameOk = /^[a-z0-9._-]{3,30}$/.test(uname);
 
     if (rawName && rawName !== uname && nameOk) fields.Username = uname;
-    const role = String(r.Role || '').trim().toUpperCase();
+    const role = normRole_(r.Role);
     if (role && role !== String(r.Role)) fields.Role = role;
     if (role && ROLES.indexOf(role) < 0) note('Role', 'Role tidak dikenal. Pilih salah satu: ' + ROLES.join(', '));
 
@@ -162,16 +178,33 @@ function processUserSheet_() {
 
 // ---------------- Permissions ----------------
 
-function hasPerm_(role, perm) {
-  const list = ROLE_PERMISSIONS[role] || [];
-  return list.indexOf('*') >= 0 || list.indexOf(perm) >= 0;
-}
-function hasAnyPerm_(role, perms) {
-  return perms.some(function (p) { return hasPerm_(role, p); });
+/** Every permission a user has: main role + extra roles + extra permissions. */
+function permsOf_(user) {
+  let out = [];
+  [user.role].concat(user.extraRoles || []).forEach(function (r) {
+    out = out.concat(ROLE_PERMISSIONS[r] || []);
+  });
+  return out.concat(user.extraPerms || []);
 }
 
-function navFor_(role) {
-  return NAV.filter(function (n) { return hasAnyPerm_(role, n.perms); })
+/** Accepts a user object (normal) or a plain role code (role's own permissions only). */
+function hasPerm_(who, perm) {
+  const list = typeof who === 'string' ? (ROLE_PERMISSIONS[normRole_(who)] || []) : permsOf_(who);
+  return list.indexOf('*') >= 0 || list.indexOf(perm) >= 0;
+}
+function hasAnyPerm_(who, perms) {
+  return perms.some(function (p) { return hasPerm_(who, p); });
+}
+
+/** Shown under a name: "Barista + Kasir + Antar pesanan". */
+function roleText_(user) {
+  const roles = [user.role].concat(user.extraRoles || []).map(function (r) { return ROLE_LABELS[r] || r; });
+  const perms = (user.extraPerms || []).map(function (p) { return PERM_LABELS[p] || p; });
+  return roles.concat(perms).join(' + ');
+}
+
+function navFor_(user) {
+  return NAV.filter(function (n) { return hasAnyPerm_(user, n.perms); })
     .map(function (n) { return { id: n.id, label: n.label, section: n.section || '', ready: n.ready, phase: n.phase || null, about: n.about || '' }; });
 }
 
@@ -194,8 +227,8 @@ function requireSession_(token) {
 function requirePerm_(token, perms) {
   const user = requireSession_(token);
   const list = Array.isArray(perms) ? perms : [perms];
-  if (!hasAnyPerm_(user.role, list)) {
-    throw jayaError_('Akses ditolak. Role Anda (' + (ROLE_LABELS[user.role] || user.role) + ') tidak boleh melakukan ini.', 'DENIED');
+  if (!hasAnyPerm_(user, list)) {
+    throw jayaError_('Akses ditolak. Akun Anda (' + roleText_(user) + ') tidak boleh melakukan ini.', 'DENIED');
   }
   return user;
 }
@@ -203,14 +236,18 @@ function requirePerm_(token, perms) {
 function sessionPayload_(user, token) {
   return {
     token: token,
-    user: { id: user.id, name: user.name, username: user.username, role: user.role },
-    permissions: ROLE_PERMISSIONS[user.role] || [],
-    nav: navFor_(user.role),
+    user: {
+      id: user.id, name: user.name, username: user.username, role: user.role,
+      extraRoles: user.extraRoles || [], extraPerms: user.extraPerms || [], roleText: roleText_(user)
+    },
+    permissions: permsOf_(user),
+    nav: navFor_(user),
     settings: getSettingsMap_(),
     paymentMethods: PAYMENT_METHODS,
     paymentOrder: PAYMENT_ORDER,
     roleLabels: ROLE_LABELS,
-    unreadNotifications: hasPerm_(user.role, 'notifications.view') ? safeUnread_() : 0,
+    permLabels: PERM_LABELS,
+    unreadNotifications: hasPerm_(user, 'notifications.view') ? safeUnread_() : 0,
     version: APP_VERSION
   };
 }

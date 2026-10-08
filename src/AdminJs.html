@@ -76,10 +76,10 @@ function prodEdit(p) {
 }
 
 /* ---------------- Users ---------------- */
-const Usr = { list: [], roles: [] };
+const Usr = { list: [], roles: [], extraRoles: [], extraPerms: [], permLabels: {} };
 const ROLE_HELP = {
-  ADMIN: 'Akses penuh', OWNER: 'Laporan, notifikasi & terima setor', CASHIER: 'Kasir, meja, pembayaran & kas shift',
-  SERVER: 'Ambil pesanan di meja (tanpa pembayaran)', CHEF: 'Layar dapur, resep, HPP & stok dapur',
+  ADMIN: 'Akses penuh', OWNER: 'Laporan, notifikasi & terima setor', CASHIER: 'Kasir, meja, pembayaran & kas shift, antar pesanan',
+  CHEF: 'Layar dapur, resep, HPP & stok dapur',
   BARISTA: 'Layar bar, resep, HPP & stok bar', PURCHASING: 'Supplier, PO & penerimaan barang'
 };
 
@@ -89,10 +89,13 @@ Views.users = async function () {
     const d = await api('apiListUsers', App.token);
     Usr.list = d.users;
     Usr.roles = d.roles;
+    Usr.extraRoles = d.extraRoles || [];
+    Usr.extraPerms = d.extraPerms || [];
+    Usr.permLabels = d.permLabels || {};
     $('userList').innerHTML = d.users.map(function (u) {
       return '<div class="row-item' + (u.active ? '' : ' inactive') + '">' +
         '<div class="row-main"><div class="row-title">' + esc(u.name) + '</div>' +
-        '<div class="row-sub">@' + esc(u.username) + ' · <b>' + esc(roleLabel(u.role)) + '</b>' + (u.active ? '' : ' · nonaktif') + (u.hasPin ? '' : ' · belum ada PIN') + '</div></div>' +
+        '<div class="row-sub">@' + esc(u.username) + ' · <b>' + esc(u.roleText || roleLabel(u.role)) + '</b>' + (u.active ? '' : ' · nonaktif') + (u.hasPin ? '' : ' · belum ada PIN') + '</div></div>' +
         '<div class="row-actions"><button class="btn small" type="button" data-edit="' + esc(u.id) + '">Ubah</button>' +
         '<button class="btn small" type="button" data-pin="' + esc(u.id) + '">PIN</button></div></div>';
     }).join('');
@@ -105,13 +108,24 @@ function roleOptions() {
   return Usr.roles.map(function (r) { return { value: r, label: roleLabel(r) + ' — ' + (ROLE_HELP[r] || '') }; });
 }
 
+/** Extra roles and single permissions, shown as checkboxes. */
+function extraOptions() {
+  return {
+    roles: Usr.extraRoles.map(function (r) { return { value: r, label: roleLabel(r) }; }),
+    perms: Usr.extraPerms.map(function (p) { return { value: p, label: Usr.permLabels[p] || p }; })
+  };
+}
+
 function userAdd() {
+  const x = extraOptions();
   openForm({
     title: 'Tambah pengguna',
     fields: [
       { name: 'name', label: 'Nama lengkap' },
       { name: 'username', label: 'Username', help: 'Huruf kecil, tanpa spasi. Contoh: kasir1' },
-      { name: 'role', label: 'Role', type: 'select', options: roleOptions(), value: 'CASHIER' },
+      { name: 'role', label: 'Role utama', type: 'select', options: roleOptions(), value: 'CASHIER' },
+      { name: 'extraRoles', label: 'Role tambahan', type: 'multi', options: x.roles, value: [], help: 'Opsional. Izinnya ditambahkan ke role utama.' },
+      { name: 'extraPerms', label: 'Izin tambahan', type: 'multi', options: x.perms, value: [] },
       { name: 'pin', label: 'PIN (4–8 angka)', type: 'pin' }
     ],
     onSubmit: async function (v) {
@@ -123,12 +137,15 @@ function userAdd() {
 }
 
 function userEdit(u) {
+  const x = extraOptions();
   openForm({
     title: 'Ubah ' + u.name,
     fields: [
       { name: 'name', label: 'Nama lengkap', value: u.name },
       { name: 'username', label: 'Username', value: u.username, readonly: true, help: 'Username tidak bisa diubah.' },
-      { name: 'role', label: 'Role', type: 'select', options: roleOptions(), value: u.role },
+      { name: 'role', label: 'Role utama', type: 'select', options: roleOptions(), value: u.role },
+      { name: 'extraRoles', label: 'Role tambahan', type: 'multi', options: x.roles, value: u.extraRoles || [], help: 'Opsional. Izinnya ditambahkan ke role utama.' },
+      { name: 'extraPerms', label: 'Izin tambahan', type: 'multi', options: x.perms, value: u.extraPerms || [] },
       { name: 'active', label: 'Aktif (bisa login)', type: 'checkbox', value: u.active }
     ],
     onSubmit: async function (v) {

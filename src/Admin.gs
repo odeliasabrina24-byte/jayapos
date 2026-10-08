@@ -10,7 +10,7 @@
 function apiGetProducts(token) {
   return run_(function () {
     const user = requirePerm_(token, 'products.view');
-    const canSeeCost = hasPerm_(user.role, 'products.view_cost');
+    const canSeeCost = hasPerm_(user, 'products.view_cost');
     const products = readTable_('Products').rows.map(function (r) {
       const price = moneyNum_(r.Selling_Price);
       const cost = moneyNum_(r.Cost);
@@ -25,7 +25,7 @@ function apiGetProducts(token) {
     }).filter(function (p) { return p.id; });
     const cats = categoryOrder_();
     products.forEach(function (p) { if (p.category && cats.indexOf(p.category) < 0) cats.push(p.category); });
-    return { products: products, categories: cats, canEdit: hasPerm_(user.role, 'products.manage'), canSeeCost: canSeeCost };
+    return { products: products, categories: cats, canEdit: hasPerm_(user, 'products.manage'), canSeeCost: canSeeCost };
   });
 }
 
@@ -127,6 +127,21 @@ function apiSetProductImage(token, productId, dataUrl) {
 
 // ---------------- Users ----------------
 
+/**
+ * Checks extra roles / extra permissions sent from the phone.
+ * Accepts an array or a text list. Returns clean arrays, without the main role.
+ */
+function cleanExtras_(data, role) {
+  const roles = (Array.isArray(data.extraRoles) ? data.extraRoles : listOf_(data.extraRoles)).map(normRole_);
+  const perms = Array.isArray(data.extraPerms) ? data.extraPerms : listOf_(data.extraPerms);
+  roles.forEach(function (r) { if (EXTRA_ROLES.indexOf(r) < 0) throw new Error('Izin tambahan tidak dikenal: ' + r); });
+  perms.forEach(function (p) { if (EXTRA_PERMS.indexOf(p) < 0) throw new Error('Izin tambahan tidak dikenal: ' + p); });
+  return {
+    roles: roles.filter(function (r, i) { return r !== role && roles.indexOf(r) === i; }),
+    perms: perms.filter(function (p, i) { return perms.indexOf(p) === i; })
+  };
+}
+
 function createUser_(data, actor) {
   const name = cleanText_(data.name, 60);
   if (!name) throw new Error('Nama lengkap wajib diisi.');
@@ -134,8 +149,9 @@ function createUser_(data, actor) {
   if (!/^[a-z0-9._-]{3,30}$/.test(username)) {
     throw new Error('Username harus 3–30 karakter: huruf, angka, titik atau strip. Tanpa spasi.');
   }
-  const role = String(data.role || '').toUpperCase();
+  const role = normRole_(data.role);
   if (ROLES.indexOf(role) < 0) throw new Error('Role tidak dikenal.');
+  const extras = cleanExtras_(data, role);
   checkPinFormat_(data.pin);
   const users = getUsers_();
   if (users.some(function (u) { return u.username === username; })) throw new Error('Username "' + username + '" sudah dipakai.');
@@ -143,6 +159,7 @@ function createUser_(data, actor) {
   const salt = newSalt_();
   appendObjects_('Users', [{
     User_ID: id, Full_Name: name, Username: username, Role: role, New_PIN: '',
+    Extra_Roles: extras.roles.join(', '), Extra_Perms: extras.perms.join(', '),
     PIN_Hash: hashPin_(String(data.pin), salt), PIN_Salt: salt, Active_Status: true,
     Created_At: nowStamp_(), Updated_At: nowStamp_()
   }]);
@@ -155,8 +172,14 @@ function apiListUsers(token) {
     requirePerm_(token, 'users.manage');
     return {
       roles: ROLES,
+      extraRoles: EXTRA_ROLES,
+      extraPerms: EXTRA_PERMS,
+      permLabels: PERM_LABELS,
       users: getUsers_().map(function (u) {
-        return { id: u.id, name: u.name, username: u.username, role: u.role, active: u.active, hasPin: !!u.hash };
+        return {
+          id: u.id, name: u.name, username: u.username, role: u.role, active: u.active, hasPin: !!u.hash,
+          extraRoles: u.extraRoles, extraPerms: u.extraPerms, roleText: roleText_(u)
+        };
       })
     };
   });
@@ -173,20 +196,30 @@ function apiSaveUser(token, data) {
       const u = users.filter(function (x) { return x.id === String(data.id); })[0];
       if (!u) throw new Error('Pengguna tidak ditemukan.');
       const name = cleanText_(data.name, 60);
-      const role = String(data.role || '').toUpperCase();
+      const role = normRole_(data.role);
+      const extras = cleanExtras_(data, role);
       const active = data.active === true;
       if (!name) throw new Error('Nama lengkap wajib diisi.');
       if (ROLES.indexOf(role) < 0) throw new Error('Role tidak dikenal.');
-      if (u.id === actor.id && (role !== 'ADMIN' || !active)) {
+      // Who is an admin AFTER this save (main role or extra role ADMIN)
+      const after = { role: role, extraRoles: extras.roles, extraPerms: extras.perms };
+      const stillAdmin = hasPerm_(after, '*') && active;
+      if (u.id === actor.id && !stillAdmin && hasPerm_(actor, '*')) {
         throw new Error('Anda tidak bisa mencabut role admin Anda sendiri atau menonaktifkan diri sendiri.');
       }
-      const otherAdmins = users.filter(function (x) { return x.id !== u.id && x.role === 'ADMIN' && x.active; });
-      if (u.role === 'ADMIN' && (role !== 'ADMIN' || !active) && !otherAdmins.length) {
+      const otherAdmins = users.filter(function (x) { return x.id !== u.id && x.active && hasPerm_(x, '*'); });
+      if (hasPerm_(u, '*') && !stillAdmin && !otherAdmins.length) {
         throw new Error('Harus selalu ada minimal satu admin yang aktif.');
       }
-      updateRow_('Users', u.row, { Full_Name: name, Role: role, Active_Status: active, Updated_At: nowStamp_() });
-      audit_(actor, 'USER_UPDATE', 'User', u.id,
-             { before: { name: u.name, role: u.role, active: u.active }, after: { name: name, role: role, active: active } });
+      updateRow_('Users', u.row, {
+        Full_Name: name, Role: role, Active_Status: active,
+        Extra_Roles: extras.roles.join(', '), Extra_Perms: extras.perms.join(', '),
+        Updated_At: nowStamp_()
+      });
+      audit_(actor, 'USER_UPDATE', 'User', u.id, {
+        before: { name: u.name, role: u.role, extraRoles: u.extraRoles, extraPerms: u.extraPerms, active: u.active },
+        after: { name: name, role: role, extraRoles: extras.roles, extraPerms: extras.perms, active: active }
+      });
       return { id: u.id };
     });
   });

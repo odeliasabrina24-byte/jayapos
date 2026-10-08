@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.3.14';
+const APP_VERSION = '3.4.0';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -25,13 +25,39 @@ const MIXED_LABEL = 'Campuran';
 const PAYMENT_ORDER = ['CASH', 'QRIS', 'DEBIT', 'CREDIT_CARD', 'OTHER'];
 
 /** How roles and statuses are shown in the app (the codes in the Sheet stay in English). */
-const ROLE_LABELS = { ADMIN: 'Admin', OWNER: 'Owner', CASHIER: 'Kasir', SERVER: 'Server', CHEF: 'Chef', BARISTA: 'Barista',
+const ROLE_LABELS = { ADMIN: 'Admin', OWNER: 'Owner', CASHIER: 'Kasir', CHEF: 'Chef', BARISTA: 'Barista',
                       PURCHASING: 'Purchasing' };
 
-const ROLES = ['ADMIN', 'OWNER', 'CASHIER', 'SERVER', 'CHEF', 'BARISTA', 'PURCHASING'];
+const ROLES = ['ADMIN', 'OWNER', 'CASHIER', 'CHEF', 'BARISTA', 'PURCHASING'];
 
 /**
- * What each role may do. The SERVER checks these on every request,
+ * Each person has ONE main role (Role) and may get extra roles (Extra_Roles)
+ * and single extra permissions (Extra_Perms). Their access is the union of all of them.
+ * Old role SERVER is now CASHIER (see normRole_ in Auth.gs).
+ */
+const EXTRA_ROLES = ROLES.slice();
+const EXTRA_PERMS = ['tables.serve', 'kitchen.food', 'kitchen.bar', 'pos.sell', 'pos.order', 'menu.soldout'];
+const PERM_LABELS = {
+  'tables.serve': 'Antar pesanan', 'kitchen.food': 'Layar Dapur', 'kitchen.bar': 'Layar Bar',
+  'pos.sell': 'Bayar', 'pos.order': 'Catat pesanan', 'menu.soldout': 'Menu Habis'
+};
+
+/**
+ * Staff roles agreed for this business. Applied ONCE to the Users sheet
+ * (see applyStaffRolesOnce_ in Database.gs). Matched by Username, or by the first word of Full_Name.
+ */
+const STAFF_ROLES = {
+  patrick: { role: 'OWNER',      extraRoles: [],        extraPerms: [] },
+  odelia:  { role: 'OWNER',      extraRoles: ['ADMIN'], extraPerms: [] },
+  kevin:   { role: 'BARISTA',    extraRoles: ['CASHIER'], extraPerms: [] },
+  sendy:   { role: 'CASHIER',    extraRoles: [],        extraPerms: [] },
+  wisnu:   { role: 'PURCHASING', extraRoles: [],        extraPerms: ['tables.serve'] },
+  rian:    { role: 'CHEF',       extraRoles: [],        extraPerms: [] },
+  reza:    { role: 'CHEF',       extraRoles: [],        extraPerms: [] }
+};
+
+/**
+ * What each role may do. The server checks these on every request,
  * so hiding a button is never the only protection. '*' = everything.
  */
 const ROLE_PERMISSIONS = {
@@ -41,7 +67,6 @@ const ROLE_PERMISSIONS = {
                'shift.view', 'cash.confirm'],
   CASHIER:    ['pos.sell', 'pos.order', 'tables.serve', 'tables.layout', 'history.view_recent', 'receipt.view', 'pos.void',
                'shift.manage', 'menu.soldout'],
-  SERVER:     ['pos.order', 'tables.serve'],
   CHEF:       ['kitchen.food', 'menu.soldout', 'recipes.food', 'cogs.food', 'stock.food', 'ingredients.food'],
   BARISTA:    ['kitchen.bar', 'menu.soldout', 'recipes.beverage', 'cogs.beverage', 'stock.beverage', 'ingredients.beverage'],
   PURCHASING: ['suppliers.manage', 'suppliers.view', 'purchasing.manage', 'purchasing.view', 'ingredients.purchasing']
@@ -208,8 +233,9 @@ const SCHEMA = {
   },
   Users: {
     headers: ['User_ID', 'Full_Name', 'Username', 'Role', 'New_PIN', 'Active_Status', 'PIN_Hash', 'PIN_Salt',
-              'Created_At', 'Updated_At'],
-    text: ['User_ID', 'Full_Name', 'Username', 'Role', 'New_PIN', 'PIN_Hash', 'PIN_Salt', 'Created_At', 'Updated_At'],
+              'Created_At', 'Updated_At', 'Extra_Roles', 'Extra_Perms'],
+    text: ['User_ID', 'Full_Name', 'Username', 'Role', 'New_PIN', 'PIN_Hash', 'PIN_Salt', 'Created_At', 'Updated_At',
+           'Extra_Roles', 'Extra_Perms'],
     lists: { Role: ROLES, Active_Status: ['TRUE', 'FALSE'] }
   },
   Products: {

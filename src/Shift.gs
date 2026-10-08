@@ -129,9 +129,9 @@ function readCount_(count) {
 }
 
 function shiftState_(user) {
-  const canView = hasPerm_(user.role, 'shift.view');
-  const canManage = hasPerm_(user.role, 'shift.manage');
-  const canConfirm = hasPerm_(user.role, 'cash.confirm');
+  const canView = hasPerm_(user, 'shift.view');
+  const canManage = hasPerm_(user, 'shift.manage');
+  const canConfirm = hasPerm_(user, 'cash.confirm');
   const s = getSettingsMap_();
   const cur = currentShift_();
   const last = lastClosedShift_();

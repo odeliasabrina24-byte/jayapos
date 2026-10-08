@@ -124,8 +124,8 @@ function floorData_(user) {
       return { id: t.id, name: t.name, area: t.area, seats: t.seats, shape: t.shape, x: t.x, y: t.y, w: t.w, h: t.h };
     }),
     open: open,
-    canServe: hasPerm_(user.role, 'tables.serve'),
-    canEditLayout: hasPerm_(user.role, 'tables.layout'),
+    canServe: hasPerm_(user, 'tables.serve'),
+    canEditLayout: hasPerm_(user, 'tables.layout'),
     serverNow: Date.now()
   };
 }
@@ -220,7 +220,7 @@ function apiSaveOpenOrder(token, data) {
     const guest = cleanGuest_(data.guestName);
     const incoming = parseLines_(data.lines || data.items || [], true);
     const products = productMap_();
-    const canDiscount = hasPerm_(user.role, 'pos.sell');
+    const canDiscount = hasPerm_(user, 'pos.sell');
     return withLock_(function () {
       const o = getOpenOrder_(data.orderId);
       if (!o) throw new Error('Bill tidak ditemukan. Muat ulang layar Meja.');

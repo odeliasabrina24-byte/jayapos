@@ -41,7 +41,7 @@ function apiGetSuppliers(token) {
       if (d > t.last) t.last = d;
     });
     return {
-      canEdit: hasPerm_(user.role, 'suppliers.manage'),
+      canEdit: hasPerm_(user, 'suppliers.manage'),
       suppliers: suppliersList_().map(function (s) {
         const t = totals[s.id] || { total: 0, count: 0, last: '' };
         return { id: s.id, name: s.name, contact: s.contact, phone: s.phone, address: s.address, notes: s.notes, active: s.active,
@@ -142,7 +142,7 @@ function apiGetPurchaseOrders(token, filter) {
     }
     if (filter.supplierId) list = list.filter(function (p) { return p.supplierId === String(filter.supplierId); });
     list.sort(function (a, b) { return (b.receivedDate || b.date) < (a.receivedDate || a.date) ? -1 : 1; });
-    const canManage = hasPerm_(user.role, 'purchasing.manage');
+    const canManage = hasPerm_(user, 'purchasing.manage');
     return {
       mode: mode, from: range ? range.from : '', to: range ? range.to : '', canManage: canManage,
       orders: list.slice(0, 300).map(publicPo_),
