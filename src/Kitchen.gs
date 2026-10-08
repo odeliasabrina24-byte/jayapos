@@ -243,6 +243,35 @@ function apiServeRound(token, orderId, round) {
   });
 }
 
+/**
+ * Kasir/server: delivers the ready portions of ONE item line (ticket + item index), e.g. when the
+ * server ticks the line's checkbox. Returns how many portions went out.
+ */
+function apiServeItem(token, ticketId, itemIdx) {
+  return run_(function () {
+    const user = requirePerm_(token, 'tables.serve');
+    return withLock_(function () {
+      const tid = String(ticketId || ''), idx = Number(itemIdx);
+      const r = readRecentRows_('Kitchen_Tickets', 400).filter(function (x) {
+        return x.Ticket_ID && String(x.Ticket_ID) === tid && String(x.Kind || '') === 'ORDER';
+      })[0];
+      if (!r) throw new Error('Pesanan dapur tidak ditemukan. Muat ulang layar.');
+      const data = ticketData_(r);
+      const item = data.items[idx];
+      if (!item) throw new Error('Item tidak ditemukan. Muat ulang layar.');
+      const n = unitsToServe_(item);
+      if (n <= 0) throw new Error('Belum ada yang siap untuk item ini.');
+      const at = String(nowStamp_()).slice(11, 16);
+      item.srv = (Number(item.srv) || 0) + n;
+      item.srvAt = at;
+      item.srvLog = (Array.isArray(item.srvLog) ? item.srvLog : []).concat([{ n: n, at: at }]);
+      saveTicketItems_(r, data, '');
+      audit_(user, 'SERVED', 'Order', String(r.Order_ID || ''), { round: Number(r.Round) || 0, item: item.name, n: n });
+      return { ticketId: tid, idx: idx, n: n, name: String(item.name || '') };
+    });
+  });
+}
+
 /** Layar "Siap diantar" (kasir / server): rounds of open tables with something ready (or still cooking). Polled every 15 s. */
 function apiGetServe(token) {
   return run_(function () {
@@ -320,7 +349,7 @@ function serveBoard_() {
         } catch (e) { /* broken stamp: skip */ }
       });
       const data = ticketData_(r);
-      data.items.forEach(function (i) {
+      data.items.forEach(function (i, idx) {
         if (i.st !== 'FOOD' && i.st !== 'BAR') return;
         const q = Number(i.qty) || 0;
         const rd = Math.min(q, Number(i.rdy) || 0), sv = Math.min(rd, Number(i.srv) || 0);
@@ -329,8 +358,8 @@ function serveBoard_() {
         else if (rd >= q) status = 'DONE';
         else if (rd > 0) status = 'PART';
         else status = colVal[i.st] && colVal[i.st] !== 'NEW' ? 'PROSES' : 'NEW';
-        lines.push({ qty: q, name: i.name, note: i.note || '', st: i.st, status: status, rdy: rd, srv: sv, servedAt: i.srvAt || '',
-          serves: serveLog_(i) });
+        lines.push({ tid: String(r.Ticket_ID), idx: idx, qty: q, name: i.name, note: i.note || '', st: i.st, status: status,
+          rdy: rd, srv: sv, servedAt: i.srvAt || '', serves: serveLog_(i) });
       });
     });
     const createdMs = Math.min.apply(null, rs.map(function (r) { return Number(r.Created_Ms) || 0; }).filter(Boolean));

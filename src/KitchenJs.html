@@ -331,7 +331,8 @@ function serveShow() {
     reload: function () { serveLoad(false); },
     toggle: function () { Serve.view = Serve.view === 'ready' ? 'all' : 'ready'; Serve.focus = null; serveRender(); },
     table: function (el) { Serve.focus = el.dataset.order; Serve.view = 'all'; serveRender(); },
-    serve: function (el) { serveDelivered(el.dataset.order, el.dataset.round, el); }
+    serve: function (el) { serveDelivered(el.dataset.order, el.dataset.round, el); },
+    item: function (el) { serveItem(el.dataset.ticket, el.dataset.idx, el); }
   });
   serveLoad(false);
   if (!Serve.timer) {
@@ -379,7 +380,7 @@ function serveRender() {
     const rounds = d.all.filter(function (r) { return !Serve.focus || r.orderId === Serve.focus; });
     const one = Serve.focus && rounds[0];
     $('serveTitle').textContent = one ? 'Meja ' + (one.table || '-') : 'Semua pesanan';
-    $('serveSwitch').textContent = '‹ Siap diantar';
+    $('serveSwitch').textContent = 'Kembali';
     $('serveBody').innerHTML = rounds.length ? serveAllHtml(rounds)
       : '<div class="empty">Belum ada pesanan meja yang terbuka.</div>';
   }
@@ -393,7 +394,7 @@ function serveReadyCard(r) {
   const waiting = r.lines.filter(function (l) { return l.rdy < l.qty; });
   const m = Math.max(0, Math.floor((Date.now() - Serve.offset - (r.readyStamped ? r.readyMs : r.createdMs)) / 60000));
   const lines = go.map(function (l) {
-    return '<div class="sv-line"><span class="sv-qty">' + (l.rdy - l.srv) + '×</span><span class="sv-name">' + esc(l.name) + '</span>' +
+    return '<div class="sv-line">' + serveCheck(l) + '<span class="sv-qty">' + (l.rdy - l.srv) + '×</span><span class="sv-name">' + esc(l.name) + '</span>' +
       (l.note ? '<span class="tk-note">' + esc(l.note) + '</span>' : '') + '</div>';
   }).join('');
   const left = waiting.length ? '<div class="small muted sv-wait">Masih dibuat: ' +
@@ -421,8 +422,7 @@ function serveAllHtml(rounds) {
     const o = byOrder[oid];
     const rs = o.rounds.map(function (r) {
       return '<div class="sv-round"><div class="sv-rhead"><b>Pesanan ' + r.round + '</b> · masuk ' + esc(r.time) +
-        (r.readyStamped ? ' · siap ' + esc(r.readyAt) : '') + '</div>' + r.lines.map(serveAllLine).join('') +
-        (r.state === 'READY' ? '<button class="btn small sv-serve" type="button" data-act="serve" data-order="' + esc(r.orderId) + '" data-round="' + r.round + '">✓ Sudah diantar</button>' : '') + '</div>';
+        (r.readyStamped ? ' · siap ' + esc(r.readyAt) : '') + '</div>' + r.lines.map(serveAllLine).join('') + '</div>';
     }).join('');
     return '<div class="ticket sv-table"><div class="tk-head"><div><span class="tk-table">' + esc(o.table || '-') + '</span>' +
       (o.guest ? '<span class="tk-guest">' + esc(o.guest) + '</span>' : '') + '</div></div>' + rs + '</div>';
@@ -447,11 +447,39 @@ function serveAllLine(l) {
   const log = (l.serves || []).filter(function (s) { return s.n > 0; })
     .map(function (s) { return '<span class="sv-chip">✓ ' + s.n + ' diantar ' + esc(s.at || '-') + '</span>'; }).join('');
   return '<div class="sv-line' + (l.status === 'SERVED' ? ' served' : '') + '">' +
-    '<div class="sv-main"><span class="sv-qty">' + l.qty + '×</span><span class="sv-name">' + esc(l.name) + '</span>' +
+    '<div class="sv-main">' + serveCheck(l) + '<span class="sv-qty">' + l.qty + '×</span><span class="sv-name">' + esc(l.name) + '</span>' +
     '<span class="sv-station">' + (l.st === 'FOOD' ? 'Dapur' : 'Bar') + '</span></div>' +
     '<div class="sv-now">' + now + '</div>' +
     (log ? '<div class="sv-log">' + log + '</div>' : '') +
     (l.note ? '<div class="tk-note">' + esc(l.note) + '</div>' : '') + '</div>';
+}
+
+/**
+ * Kolom centang per item. Dicentang = semua porsi sudah diantar. Tidak bisa dicentang kalau belum ada yang siap.
+ * Sekali centang = semua porsi yang sudah siap pada item itu keluar; sisa yang masih dibuat menunggu.
+ */
+function serveCheck(l) {
+  const key = 'i|' + l.tid + '|' + l.idx;
+  const done = l.srv >= l.qty;
+  const nothing = !(l.rdy > l.srv);
+  return '<input type="checkbox" class="sv-check" data-act="item" data-ticket="' + esc(l.tid) + '" data-idx="' + l.idx + '"' +
+    (done ? ' checked' : '') + ((done || nothing || Serve.busy[key]) ? ' disabled' : '') + ' aria-label="Sudah diantar">';
+}
+
+async function serveItem(tid, idx, el) {
+  const key = 'i|' + tid + '|' + idx;
+  if (Serve.busy[key]) return;
+  Serve.busy[key] = true;
+  if (el) el.disabled = true;
+  try {
+    const r = await api('apiServeItem', App.token, tid, Number(idx));
+    toast(r.n + '× ' + r.name + ' sudah diantar.');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    delete Serve.busy[key];
+    serveLoad(true);
+  }
 }
 
 async function serveDelivered(orderId, round, el) {
