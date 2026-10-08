@@ -247,69 +247,97 @@ function apiServeRound(token, orderId, round) {
 function apiGetServe(token) {
   return run_(function () {
     requirePerm_(token, 'tables.serve');
-    const orders = {};
-    openOrders_().forEach(function (o) { orders[o.id] = o; });
-    const rows = readRecentRows_('Kitchen_Tickets', 400).filter(function (r) {
-      return r.Ticket_ID && String(r.Kind || '') === 'ORDER' && orders[String(r.Order_ID || '')];
-    }).sort(function (a, b) { return (Number(a.Created_Ms) || 0) - (Number(b.Created_Ms) || 0); });
-    const groups = {};
-    rows.forEach(function (r) {
-      const key = String(r.Order_ID) + '|' + (Number(r.Round) || 0);
-      (groups[key] = groups[key] || []).push(r);
-    });
-    const ready = [], cooking = [], all = [];
-    Object.keys(groups).forEach(function (key) {
-      const rs = groups[key];
-      const o = orders[String(rs[0].Order_ID)];
-      const states = stationStates_(rs);
-      const stations = Object.keys(states);
-      if (!stations.length) return;
-      const hasLeft = stations.some(function (st) { return states[st] !== 'SERVED'; });
-      const isReady = stations.some(function (st) { return states[st] === 'DONE' || states[st] === 'PART'; });
-      const lines = [];
-      let readyMs = 0, readyAt = '';
-      rs.forEach(function (r) {
-        const colVal = {}; colVal.FOOD = String(r.Food_Status || ''); colVal.BAR = String(r.Bar_Status || '');
-        ['FOOD', 'BAR'].forEach(function (st) {
-          const doneCol = st === 'FOOD' ? 'Food_Done_At' : 'Bar_Done_At';
-          const stamp = cellText_(r[doneCol]);
-          try {                                        // earliest "siap" moment of the round
-            const ms = stamp ? Utilities.parseDate(stamp, tz_(), 'yyyy-MM-dd HH:mm:ss').getTime() : 0;
-            if (ms && (!readyMs || ms < readyMs)) { readyMs = ms; readyAt = stamp.slice(11, 16); }
-          } catch (e) { /* broken stamp: skip */ }
-        });
-        const data = ticketData_(r);
-        data.items.forEach(function (i) {
-          if (i.st !== 'FOOD' && i.st !== 'BAR') return;
-          const q = Number(i.qty) || 0;
-          const rd = Math.min(q, Number(i.rdy) || 0), sv = Math.min(rd, Number(i.srv) || 0);
-          let status;
-          if (sv >= q) status = 'SERVED';
-          else if (rd >= q) status = 'DONE';
-          else if (rd > 0) status = 'PART';
-          else status = colVal[i.st] && colVal[i.st] !== 'NEW' ? 'PROSES' : 'NEW';
-          lines.push({ qty: q, name: i.name, note: i.note || '', st: i.st, status: status, rdy: rd, srv: sv, servedAt: i.srvAt || '',
-            serves: serveLog_(i) });
-        });
-      });
-      const createdMs = Math.min.apply(null, rs.map(function (r) { return Number(r.Created_Ms) || 0; }).filter(Boolean));
-      const readyStamped = !!readyMs;
-      if (isReady && !readyMs) readyMs = createdMs;   // no stamp yet (only part is ready): age counts from the order
-      const card = {
-        orderId: o.id, round: Number(rs[0].Round) || 0, table: o.tableName, guest: o.guestName || '', pax: o.pax || 0,
-        time: cellText_(rs[0].Created_At).slice(11, 16), createdMs: createdMs, by: String(rs[0].Created_By || ''),
-        stations: states, lines: lines, readyAt: readyAt, readyStamped: readyStamped,
-        readyMs: isReady ? readyMs : 0, state: !hasLeft ? 'SERVED' : isReady ? 'READY' : 'COOKING'
-      };
-      all.push(card);
-      if (!hasLeft) return;                           // fully delivered: only in the all-orders view
-      (isReady ? ready : cooking).push(card);
-    });
-    ready.sort(function (a, b) { return a.readyMs - b.readyMs; });
-    cooking.sort(function (a, b) { return a.createdMs - b.createdMs; });
-    all.sort(function (a, b) { return a.createdMs - b.createdMs; });
-    return { serverNow: Date.now(), ready: ready, cooking: cooking, all: all };
+    return serveBoard_();
   });
+}
+
+/**
+ * Orders the serve screens watch: open tables, and orders already PAID whose food is still on its way.
+ * Paying before the food is ready is normal, so payment alone must not remove an order from the queue.
+ */
+function serveOrders_() {
+  const out = {};
+  openOrders_().forEach(function (o) { out[o.id] = o; });
+  const sh = getSheet_('Open_Orders');
+  const headers = getHeaders_(sh);
+  findRowNumbers_(sh, headers, 'Status', 'PAID').forEach(function (n) {
+    const o = orderFromRow_(rowObject_(sh, headers, n));
+    if (!out[o.id]) out[o.id] = o;
+  });
+  return out;
+}
+
+/** Kitchen tickets of the serve-able orders. PAID orders count only from yesterday on, so old leftovers stay out. */
+function serveTickets_(orders) {
+  const yesterday = addDays_(todayStr_(), -1);
+  return readRecentRows_('Kitchen_Tickets', 400).filter(function (r) {
+    if (!r.Ticket_ID || String(r.Kind || '') !== 'ORDER') return false;
+    const o = orders[String(r.Order_ID || '')];
+    return !!o && (o.status === 'OPEN' || dateText_(r.Date) >= yesterday);
+  }).sort(function (a, b) { return (Number(a.Created_Ms) || 0) - (Number(b.Created_Ms) || 0); });
+}
+
+/** Serve board: ready / cooking / all rounds. Shared by the Siap diantar screen and the Beranda count. */
+function serveBoard_() {
+  const orders = serveOrders_();
+  const rows = serveTickets_(orders);
+  const groups = {};
+  rows.forEach(function (r) {
+    const key = String(r.Order_ID) + '|' + (Number(r.Round) || 0);
+    (groups[key] = groups[key] || []).push(r);
+  });
+  const ready = [], cooking = [], all = [];
+  Object.keys(groups).forEach(function (key) {
+    const rs = groups[key];
+    const o = orders[String(rs[0].Order_ID)];
+    const states = stationStates_(rs);
+    const stations = Object.keys(states);
+    if (!stations.length) return;
+    const hasLeft = stations.some(function (st) { return states[st] !== 'SERVED'; });
+    const isReady = stations.some(function (st) { return states[st] === 'DONE' || states[st] === 'PART'; });
+    const lines = [];
+    let readyMs = 0, readyAt = '';
+    rs.forEach(function (r) {
+      const colVal = {}; colVal.FOOD = String(r.Food_Status || ''); colVal.BAR = String(r.Bar_Status || '');
+      ['FOOD', 'BAR'].forEach(function (st) {
+        const doneCol = st === 'FOOD' ? 'Food_Done_At' : 'Bar_Done_At';
+        const stamp = cellText_(r[doneCol]);
+        try {                                        // earliest "siap" moment of the round
+          const ms = stamp ? Utilities.parseDate(stamp, tz_(), 'yyyy-MM-dd HH:mm:ss').getTime() : 0;
+          if (ms && (!readyMs || ms < readyMs)) { readyMs = ms; readyAt = stamp.slice(11, 16); }
+        } catch (e) { /* broken stamp: skip */ }
+      });
+      const data = ticketData_(r);
+      data.items.forEach(function (i) {
+        if (i.st !== 'FOOD' && i.st !== 'BAR') return;
+        const q = Number(i.qty) || 0;
+        const rd = Math.min(q, Number(i.rdy) || 0), sv = Math.min(rd, Number(i.srv) || 0);
+        let status;
+        if (sv >= q) status = 'SERVED';
+        else if (rd >= q) status = 'DONE';
+        else if (rd > 0) status = 'PART';
+        else status = colVal[i.st] && colVal[i.st] !== 'NEW' ? 'PROSES' : 'NEW';
+        lines.push({ qty: q, name: i.name, note: i.note || '', st: i.st, status: status, rdy: rd, srv: sv, servedAt: i.srvAt || '',
+          serves: serveLog_(i) });
+      });
+    });
+    const createdMs = Math.min.apply(null, rs.map(function (r) { return Number(r.Created_Ms) || 0; }).filter(Boolean));
+    const readyStamped = !!readyMs;
+    if (isReady && !readyMs) readyMs = createdMs;   // no stamp yet (only part is ready): age counts from the order
+    const card = {
+      orderId: o.id, round: Number(rs[0].Round) || 0, table: o.tableName, guest: o.guestName || '', pax: o.pax || 0,
+      time: cellText_(rs[0].Created_At).slice(11, 16), createdMs: createdMs, by: String(rs[0].Created_By || ''),
+      stations: states, lines: lines, readyAt: readyAt, readyStamped: readyStamped,
+      readyMs: isReady ? readyMs : 0, state: !hasLeft ? 'SERVED' : isReady ? 'READY' : 'COOKING'
+    };
+    all.push(card);
+    if (!hasLeft) return;                           // fully delivered: only in the all-orders view
+    (isReady ? ready : cooking).push(card);
+  });
+  ready.sort(function (a, b) { return a.readyMs - b.readyMs; });
+  cooking.sort(function (a, b) { return a.createdMs - b.createdMs; });
+  all.sort(function (a, b) { return a.createdMs - b.createdMs; });
+  return { serverNow: Date.now(), ready: ready, cooking: cooking, all: all };
 }
 
 /** Open tickets for one station (oldest first) plus the last finished ones. */
@@ -350,8 +378,7 @@ function apiKitchenCount(token) {
     if (hasPerm_(user, 'kitchen.food')) out.FOOD = 0;
     if (hasPerm_(user, 'kitchen.bar')) out.BAR = 0;
     if (hasPerm_(user, 'tables.serve')) {
-      const km = kitchenStateMap_();
-      out.READY = openOrders_().reduce(function (s, o) { return s + countReady_(km[o.id]); }, 0);
+      out.READY = serveBoard_().ready.length;      // same rounds as the Siap diantar screen
     }
     const isWaiting = function (st) { return st === 'NEW' || st === 'PROSES'; };
     rows.forEach(function (r) {
