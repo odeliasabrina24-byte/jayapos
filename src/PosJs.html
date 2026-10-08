@@ -1047,7 +1047,8 @@ function posRenderCart() {
   const dirty = posIsDirty();
   $('saveTableBtn').hidden = !Pos.ctx;
   $('saveTableBtn').disabled = Pos.busy || (!dirty && !!Pos.ctx);
-  $('saveTableBtn').textContent = Pos.ctx ? (dirty ? 'SIMPAN KE ' + Pos.ctx.tableName.toUpperCase() + ' •' : 'TERSIMPAN ✓') : '';
+  $('saveTableBtn').textContent = Pos.ctx ? (dirty ? 'SIMPAN KE ' + Pos.ctx.tableName.toUpperCase() + ' •' : '✓ Sudah tersimpan') : '';
+  $('saveTableBtn').classList.toggle('is-saved', !!Pos.ctx && !dirty);
   $('saveTableBtn').classList.toggle('primary', !pay && dirty);
   $('completeBtn').hidden = !pay;
   $('completeBtn').disabled = Pos.busy || !t.payItems;

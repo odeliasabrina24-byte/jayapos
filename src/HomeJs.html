@@ -89,7 +89,8 @@ function homeRender() {
   // Live screens: big buttons like Dine-in. Green = something to make or deliver, white = nothing waiting.
   const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
   if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', kb.READY, 'Ketuk untuk antar ke meja', 'Belum ada yang siap', 'green'));
-  if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR, 'Pesanan minuman menunggu', 'Antrean minuman kosong', 'green'));
+  if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR,
+    'minuman dari ' + (kb.BAR_TABLES || 0) + ' meja', 'Antrean minuman kosong', 'green'));
   const tiles = [];
   if (hasNav('tables')) tiles.push(homeTile('tables', 'Meja terisi', d.busy + ' / ' + d.tables, d.busy ? rp(d.openAmount) + ' belum dibayar' : 'Semua kosong'));
   if (hasNav('soldout')) tiles.push(homeTile('soldout', 'Menu habis', String(d.soldOut), d.soldOut ? 'Ketuk untuk lihat / nyalakan' : 'Semua menu tersedia', d.soldOut ? 'warn' : ''));

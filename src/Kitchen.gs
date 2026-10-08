@@ -324,7 +324,15 @@ function apiGetKitchen(token, station) {
     const open = all.filter(function (t) { return t.status === 'NEW' || t.status === 'PROSES'; });
     const done = all.filter(function (t) { return (t.status === 'DONE' || t.status === 'SERVED') && t.date === today; }).reverse().slice(0, 30);
     const strip = function (t) { delete t.row; return t; };
-    return { station: station, serverNow: Date.now(), open: open.map(strip), done: done.map(strip) };
+    // Totals for the screen header: portions still to make and tables waiting (e.g. 4 minuman dari 1 meja)
+    const tbl = {};
+    const summary = { portions: 0, tables: 0 };
+    open.forEach(function (t) {
+      const p = t.items.reduce(function (s, i) { return s + Math.max(0, i.qty - i.rdy); }, 0);
+      if (p > 0) { summary.portions += p; tbl[t.table] = true; }
+    });
+    summary.tables = Object.keys(tbl).length;
+    return { station: station, serverNow: Date.now(), open: open.map(strip), done: done.map(strip), summary: summary };
   });
 }
 
@@ -337,7 +345,8 @@ function apiKitchenCount(token) {
     const rows = readRecentRows_('Kitchen_Tickets', 400).filter(function (r) {
       return r.Ticket_ID && dateText_(r.Date) >= yesterday;
     });
-    const out = { FOOD: null, BAR: null, late: 0, READY: null };
+    const out = { FOOD: null, BAR: null, BAR_TABLES: 0, late: 0, READY: null };
+    const barTables = {};
     if (hasPerm_(user, 'kitchen.food')) out.FOOD = 0;
     if (hasPerm_(user, 'kitchen.bar')) out.BAR = 0;
     if (hasPerm_(user, 'tables.serve')) {
@@ -349,8 +358,15 @@ function apiKitchenCount(token) {
       const waiting = function (col) { return isWaiting(String(r[col] || '')); };
       const old = Number(r.Created_Ms) && (nowMs - Number(r.Created_Ms)) >= 15 * 60000;
       if (out.FOOD !== null && waiting('Food_Status')) { out.FOOD++; if (old) out.late++; }
-      if (out.BAR !== null && waiting('Bar_Status')) { out.BAR++; if (old) out.late++; }
+      if (out.BAR !== null && waiting('Bar_Status')) {
+        // count drinks (portions) still to make, not tickets
+        const left = ticketItems_(r).filter(function (i) { return i.st === 'BAR'; })
+          .reduce(function (s, i) { return s + Math.max(0, (Number(i.qty) || 0) - (Number(i.rdy) || 0)); }, 0);
+        if (left > 0) { out.BAR += left; barTables[String(r.Table_Name || '')] = true; }
+        if (old) out.late++;
+      }
     });
+    out.BAR_TABLES = Object.keys(barTables).length;
     return out;
   });
 }

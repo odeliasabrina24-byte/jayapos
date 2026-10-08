@@ -183,15 +183,20 @@ function kitCard(t, done) {
 function kitRender() {
   const d = Kit.data;
   if (!d || !$('kitBody')) return;
-  const openLabel = Kit.station === 'BAR' ? 'Layar Barista' : 'Antrian';
-  $('kitTabs').innerHTML = '<button class="chip' + (Kit.tab === 'open' ? ' active' : '') + '" type="button" data-act="tab" data-t="open">' + openLabel + ' (' + d.open.length + ')</button>' +
+  const isBar = d.station === 'BAR';
+  const sum = d.summary || { portions: 0, tables: 0 };
+  const openLabel = isBar ? 'Layar Barista (' + sum.portions + ' minuman)' : 'Antrian (' + d.open.length + ')';
+  $('kitTabs').innerHTML = '<button class="chip' + (Kit.tab === 'open' ? ' active' : '') + '" type="button" data-act="tab" data-t="open">' + openLabel + '</button>' +
     '<button class="chip' + (Kit.tab === 'done' ? ' active' : '') + '" type="button" data-act="tab" data-t="done">Selesai hari ini (' + d.done.length + ')</button>';
   const now = new Date();
-  kitBadgeSet(d.open.length, d.open.filter(function (t) { return kitAge(t).cls; }).length);
+  kitBadgeSet(isBar ? sum.portions : d.open.length, d.open.filter(function (t) { return kitAge(t).cls; }).length);
+  if (isBar && KitBadge.c) KitBadge.c.BAR_TABLES = sum.tables;
   $('kitStamp').textContent = KIT_NAMES[d.station] + ' · diperbarui ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
   const list = Kit.tab === 'open' ? d.open : d.done;
-  $('kitBody').innerHTML = list.length ? list.map(function (t) { return kitCard(t, Kit.tab === 'done'); }).join('')
-    : '<div class="empty">' + (Kit.tab === 'open' ? 'Belum ada pesanan. Layar ini memuat ulang sendiri setiap 15 detik.' : 'Belum ada yang selesai hari ini.') + '</div>';
+  const summaryHtml = isBar && Kit.tab === 'open' && sum.portions
+    ? '<div class="kit-sum">' + sum.tables + ' meja · ' + sum.portions + ' minuman belum selesai</div>' : '';
+  $('kitBody').innerHTML = summaryHtml + (list.length ? list.map(function (t) { return kitCard(t, Kit.tab === 'done'); }).join('')
+    : '<div class="empty">' + (Kit.tab === 'open' ? 'Belum ada pesanan. Layar ini memuat ulang sendiri setiap 15 detik.' : 'Belum ada yang selesai hari ini.') + '</div>');
 }
 
 async function kitStart(id) {
