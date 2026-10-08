@@ -926,12 +926,16 @@ function posCartHtml() {
 /** Status pill + "Sudah diantar" button for one saved round (table bills only). */
 function posRoundStatus(round) {
   if (!Pos.ctx) return '';
-  const st = (Pos.ctx.kitchen || {})[String(round)];
-  if (st === 'SERVED') return '<span class="pill good">✓ Sudah diantar</span>';
-  if (st === 'READY') return '<span class="pill ready">SIAP · belum diantar</span><button class="btn small primary" type="button" data-serve="' + round + '">Sudah diantar</button>';
-  if (st === 'PROSES') return '<span class="pill info">Sedang dibuat</span>';
-  if (st === 'NEW') return '<span class="pill muted">Menunggu dapur/bar</span>';
-  return '';
+  const st = (Pos.ctx.kitchen || {})[String(round)] || {};
+  const names = { FOOD: 'Dapur', BAR: 'Bar' }, lab = { NEW: 'menunggu', PROSES: 'sedang dibuat', DONE: 'SIAP', SERVED: 'sudah diantar' };
+  const cls = { NEW: 'muted', PROSES: 'info', DONE: 'ready', SERVED: 'good' };
+  let html = ['FOOD', 'BAR'].filter(function (k) { return st[k]; }).map(function (k) {
+    return '<span class="pill ' + cls[st[k]] + '">' + names[k] + ': ' + lab[st[k]] + '</span>';
+  }).join('');
+  if (Object.keys(st).some(function (k) { return st[k] === 'DONE'; })) {
+    html += '<button class="btn small primary" type="button" data-serve="' + round + '">Sudah diantar</button>';
+  }
+  return html;
 }
 
 async function posRefreshKitchen() {

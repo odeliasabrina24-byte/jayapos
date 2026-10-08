@@ -81,21 +81,25 @@ function ticketFromRow_(r, station) {
 }
 
 /* ----- Station status per order round -----
- * Food_Status / Bar_Status: NEW (belum dimulai) -> PROSES (sedang dibuat) -> DONE (siap diantar) -> SERVED (sudah diantar, dicatat server).
- * Round state (for the whole round, all stations): NEW, PROSES, READY (siap, belum diantar), SERVED. */
-function roundState_(rows) {
-  const sts = [];
+ * Food_Status / Bar_Status on each ticket: NEW (belum dimulai) -> PROSES (sedang dibuat) -> DONE (siap diantar) -> SERVED (sudah diantar).
+ * Each station is judged on its own: a round with a drink ready (Bar DONE) is already "siap diantar" even while the food is still cooking. */
+var STATION_RANK_ = { NEW: 1, PROSES: 2, DONE: 3, SERVED: 4 };
+
+/** { FOOD: status, BAR: status } for one round (the least advanced status when a round has several tickets). */
+function stationStates_(rows) {
+  const out = {};
   rows.forEach(function (r) {
-    ['Food_Status', 'Bar_Status'].forEach(function (c) { const s = String(r[c] || ''); if (s) sts.push(s); });
+    [['FOOD', 'Food_Status'], ['BAR', 'Bar_Status']].forEach(function (pair) {
+      const s = String(r[pair[1]] || '');
+      if (!s || !STATION_RANK_[s]) return;
+      const cur = out[pair[0]];
+      if (!cur || STATION_RANK_[s] < STATION_RANK_[cur]) out[pair[0]] = s;
+    });
   });
-  if (!sts.length) return '';
-  if (sts.every(function (s) { return s === 'SERVED'; })) return 'SERVED';
-  if (sts.every(function (s) { return s === 'DONE' || s === 'SERVED'; })) return 'READY';
-  if (sts.some(function (s) { return s === 'PROSES' || s === 'DONE' || s === 'SERVED'; })) return 'PROSES';
-  return 'NEW';
+  return out;
 }
 
-/** { orderId: { "1": state, "2": state } } for all recent order tickets (one sheet read). */
+/** { orderId: { "1": { FOOD: .., BAR: .. }, "2": {..} } } for all recent order tickets (one sheet read). */
 function kitchenStateMap_() {
   const groups = {};
   readRecentRows_('Kitchen_Tickets', 400).forEach(function (r) {
@@ -107,13 +111,16 @@ function kitchenStateMap_() {
   const out = {};
   Object.keys(groups).forEach(function (oid) {
     out[oid] = {};
-    Object.keys(groups[oid]).forEach(function (rd) { out[oid][rd] = roundState_(groups[oid][rd]); });
+    Object.keys(groups[oid]).forEach(function (rd) { out[oid][rd] = stationStates_(groups[oid][rd]); });
   });
   return out;
 }
 
+/** Rounds with at least one station ready and not yet delivered. */
 function countReady_(stateObj) {
-  return Object.keys(stateObj || {}).filter(function (k) { return stateObj[k] === 'READY'; }).length;
+  return Object.keys(stateObj || {}).filter(function (k) {
+    return Object.keys(stateObj[k] || {}).some(function (st) { return stateObj[k][st] === 'DONE'; });
+  }).length;
 }
 
 /** Kasir/server: marks a round as delivered ("Sudah diantar"). Only when the kitchen has marked it siap. */
@@ -126,7 +133,8 @@ function apiServeRound(token, orderId, round) {
         return r.Ticket_ID && String(r.Kind || '') === 'ORDER' && String(r.Order_ID || '') === oid && (Number(r.Round) || 0) === rd;
       });
       if (!rows.length) throw new Error('Tidak ada pesanan dapur untuk pesanan ' + rd + '.');
-      if (roundState_(rows) !== 'READY') throw new Error('Pesanan ' + rd + ' belum siap di dapur/bar.');
+      const ready = rows.some(function (r) { return String(r.Food_Status || '') === 'DONE' || String(r.Bar_Status || '') === 'DONE'; });
+      if (!ready) throw new Error('Belum ada yang siap di dapur/bar untuk pesanan ' + rd + '.');
       rows.forEach(function (r) {
         const fields = {};
         if (String(r.Food_Status || '') === 'DONE') fields.Food_Status = 'SERVED';
