@@ -193,6 +193,7 @@ async function soToggle(input) {
     else if (a === 'take') homeTakeaway();
     else if (a === 'reload') homeLoad();
   });
+  $('kitPill').addEventListener('click', function () { go($('kitPill').dataset.go || 'kitchen'); });
   $('tabBar').addEventListener('click', function (e) {
     const b = e.target.closest('[data-tab]');
     if (!b) return;

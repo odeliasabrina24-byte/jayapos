@@ -179,6 +179,7 @@ function startSession(s) {
   checkVersion(s.version);
   renderNav();
   renderTabs();
+  kitBadgeStart();
   setUnread(s.unreadNotifications || 0);
   startBell();
   go(defaultView());

@@ -4,7 +4,47 @@
 const Kit = { station: null, data: null, tab: 'open', timer: null, lastIds: null, offset: 0, loading: false };
 const KIT_NAMES = { FOOD: 'Dapur', BAR: 'Bar' };
 
-App.resetHooks.push(function () { Kit.station = null; Kit.data = null; Kit.lastIds = null; });
+App.resetHooks.push(function () { Kit.station = null; Kit.data = null; Kit.lastIds = null; kitBadgeStop(); });
+
+/* ----- top-bar counter: how many tickets wait for this user's screen (Dapur / Bar) ----- */
+const KitBadge = { timer: null, c: null };
+
+function kitBadgeStart() {
+  if (!(can('kitchen.food') || can('kitchen.bar'))) return;
+  kitBadgeLoad();
+  if (!KitBadge.timer) KitBadge.timer = setInterval(function () { if (App.token && !document.hidden) kitBadgeLoad(); }, 20000);
+}
+
+function kitBadgeStop() {
+  if (KitBadge.timer) { clearInterval(KitBadge.timer); KitBadge.timer = null; }
+  KitBadge.c = null;
+  kitBadgeRender();
+}
+
+async function kitBadgeLoad() {
+  try { KitBadge.c = await api('apiKitchenCount', App.token); kitBadgeRender(); } catch (e) {}
+}
+
+/** Used by the open screen too, so the counter matches what is on the screen. */
+function kitBadgeSet(open, late) {
+  if (Kit.station === 'FOOD' && KitBadge.c) KitBadge.c.FOOD = open;
+  if (Kit.station === 'BAR' && KitBadge.c) KitBadge.c.BAR = open;
+  if (KitBadge.c) KitBadge.c.late = late;
+  kitBadgeRender();
+}
+
+function kitBadgeRender() {
+  const pill = $('kitPill');
+  if (!pill) return;
+  const c = KitBadge.c;
+  const parts = [];
+  if (c && c.FOOD !== null) parts.push('Dapur ' + c.FOOD);
+  if (c && c.BAR !== null) parts.push('Bar ' + c.BAR);
+  pill.hidden = !parts.length;
+  pill.innerHTML = parts.join(' · ') + (c && c.late ? ' <b class="kit-late">⚠ ' + c.late + '</b>' : '');
+  pill.dataset.go = c && c.FOOD !== null ? 'kitchen' : 'bar_orders';
+  pill.classList.toggle('late', !!(c && c.late));
+}
 
 Views.kitchen = function () { kitShow('FOOD'); };
 Views.bar_orders = function () { kitShow('BAR'); };
@@ -68,7 +108,7 @@ function kitBeep() {
 function kitAge(t) {
   if (!t.createdMs) return { text: '', cls: '' };
   const m = Math.max(0, Math.floor((Date.now() - Kit.offset - t.createdMs) / 60000));
-  return { text: m < 1 ? 'baru' : m + ' menit', cls: m >= 25 ? 'late' : m >= 15 ? 'slow' : '' };
+  return { text: m < 1 ? 'baru masuk' : 'menunggu ' + m + ' mnt', cls: m >= 25 ? 'late' : m >= 15 ? 'slow' : '' };
 }
 
 function kitCard(t, done) {
@@ -76,7 +116,7 @@ function kitCard(t, done) {
   const isVoid = t.kind === 'VOID';
   const head = '<div class="tk-head"><div><span class="tk-table">' + esc(t.table || '-') + '</span>' +
     (t.guest ? '<span class="tk-guest">' + esc(t.guest) + '</span>' : '') + '</div>' +
-    '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ ' + esc(t.doneAt) : esc(age.text)) + '</span></div>' +
+    '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ keluar ' + esc(t.doneAt) + (t.serveMin != null ? ' · ' + t.serveMin + ' mnt' : '') : esc(age.text)) + '</span></div>' +
     '<div class="tk-meta">' + (isVoid ? '<b>BATAL</b>' : (t.table === 'Takeaway' ? 'Takeaway' : 'Pesanan ' + t.round)) + ' · ' + esc(t.time) +
     (t.by ? ' · ' + esc(t.by) : '') + '</div>';
   const items = t.items.map(function (i) {
@@ -97,6 +137,7 @@ function kitRender() {
   $('kitTabs').innerHTML = '<button class="chip' + (Kit.tab === 'open' ? ' active' : '') + '" type="button" data-act="tab" data-t="open">Antrian (' + d.open.length + ')</button>' +
     '<button class="chip' + (Kit.tab === 'done' ? ' active' : '') + '" type="button" data-act="tab" data-t="done">Selesai hari ini (' + d.done.length + ')</button>';
   const now = new Date();
+  kitBadgeSet(d.open.length, d.open.filter(function (t) { return kitAge(t).cls; }).length);
   $('kitStamp').textContent = KIT_NAMES[d.station] + ' · diperbarui ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
   const list = Kit.tab === 'open' ? d.open : d.done;
   $('kitBody').innerHTML = list.length ? list.map(function (t) { return kitCard(t, Kit.tab === 'done'); }).join('')

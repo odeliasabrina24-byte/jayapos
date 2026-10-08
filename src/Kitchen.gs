@@ -61,7 +61,16 @@ function ticketFromRow_(r, station) {
   const statusCol = station === 'FOOD' ? 'Food_Status' : 'Bar_Status';
   const doneCol = station === 'FOOD' ? 'Food_Done_At' : 'Bar_Done_At';
   const created = cellText_(r.Created_At);
+  const doneStamp = cellText_(r[doneCol]);
+  let serveMin = null;                       // minutes from order to "Selesai" (finished tickets only)
+  try {
+    if (doneStamp && Number(r.Created_Ms)) {
+      const doneMs = Utilities.parseDate(doneStamp, tz_(), 'yyyy-MM-dd HH:mm:ss').getTime();
+      serveMin = Math.max(0, Math.round((doneMs - Number(r.Created_Ms)) / 60000));
+    }
+  } catch (e) { serveMin = null; }
   return {
+    serveMin: serveMin,
     row: r._row, id: String(r.Ticket_ID), orderId: String(r.Order_ID || ''), table: String(r.Table_Name || ''),
     guest: String(r.Guest_Name || ''), round: Number(r.Round) || 0, kind: String(r.Kind || 'ORDER'),
     createdMs: Number(r.Created_Ms) || 0, time: created.slice(11, 16), date: dateText_(r.Date), by: String(r.Created_By || ''),
@@ -84,6 +93,28 @@ function apiGetKitchen(token, station) {
     const done = all.filter(function (t) { return t.status === 'DONE' && t.date === today; }).reverse().slice(0, 30);
     const strip = function (t) { delete t.row; return t; };
     return { station: station, serverNow: Date.now(), open: open.map(strip), done: done.map(strip) };
+  });
+}
+
+/** How many tickets are waiting for this user's screens (for the top-bar badge). Light: polled every 20 s. */
+function apiKitchenCount(token) {
+  return run_(function () {
+    const user = requirePerm_(token, ['kitchen.food', 'kitchen.bar']);
+    const yesterday = addDays_(todayStr_(), -1);
+    const nowMs = Date.now();
+    const rows = readRecentRows_('Kitchen_Tickets', 400).filter(function (r) {
+      return r.Ticket_ID && dateText_(r.Date) >= yesterday;
+    });
+    const out = { FOOD: null, BAR: null, late: 0 };
+    if (hasPerm_(user.role, 'kitchen.food')) out.FOOD = 0;
+    if (hasPerm_(user.role, 'kitchen.bar')) out.BAR = 0;
+    rows.forEach(function (r) {
+      const waiting = function (col) { return String(r[col] || '') === 'NEW'; };
+      const old = Number(r.Created_Ms) && (nowMs - Number(r.Created_Ms)) >= 15 * 60000;
+      if (out.FOOD !== null && waiting('Food_Status')) { out.FOOD++; if (old) out.late++; }
+      if (out.BAR !== null && waiting('Bar_Status')) { out.BAR++; if (old) out.late++; }
+    });
+    return out;
   });
 }
 
