@@ -928,13 +928,13 @@ function posRoundStatus(round) {
   if (!Pos.ctx) return '';
   const st = (Pos.ctx.kitchen || {})[String(round)] || {};
   const names = { FOOD: 'Dapur', BAR: 'Bar' };
-  const lab = { NEW: 'belum dimulai', PROSES: 'sedang dibuat', DONE: 'siap, belum diantar', SERVED: 'sudah diantar' };
-  const cls = { NEW: 'muted', PROSES: 'info', DONE: 'ready', SERVED: 'good' };
+  const lab = { NEW: 'belum dimulai', PROSES: 'sedang dibuat', PART: 'sebagian siap, belum diantar', DONE: 'siap, belum diantar', SERVED: 'sudah diantar' };
+  const cls = { NEW: 'muted', PROSES: 'info', PART: 'info', DONE: 'ready', SERVED: 'good' };
   const keys = ['FOOD', 'BAR'].filter(function (k) { return st[k]; });
   if (!keys.length) return '';
-  const hasReady = keys.some(function (k) { return st[k] === 'DONE'; });
+  const hasReady = keys.some(function (k) { return st[k] === 'DONE' || st[k] === 'PART'; });
   const allServed = keys.every(function (k) { return st[k] === 'SERVED'; });
-  const cooking = keys.some(function (k) { return st[k] === 'NEW' || st[k] === 'PROSES'; });
+  const cooking = keys.some(function (k) { return st[k] === 'NEW' || st[k] === 'PROSES' || st[k] === 'PART'; });
   let html = '<div class="round-status">' + keys.map(function (k) {
     return '<span class="rs-line"><span class="pill ' + cls[st[k]] + '">' + names[k] + '</span>' + lab[st[k]] + '</span>';
   }).join('');

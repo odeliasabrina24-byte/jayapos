@@ -60,6 +60,7 @@ function kitShow(station) {
     tab: function (el) { Kit.tab = el.dataset.t; kitRender(); },
     done: function (el) { kitDone(el.dataset.id, false); },
     undo: function (el) { kitDone(el.dataset.id, true); },
+    rdy: function (el) { kitSetReady(el.dataset.id, Number(el.dataset.idx), Number(el.dataset.d)); },
     start: function (el) { kitStart(el.dataset.id); }
   });
   kitLoad(false);
@@ -121,18 +122,25 @@ function kitCard(t, done) {
     '<div class="tk-meta">' + (isVoid ? '<b>BATAL</b>' : (t.table === 'Takeaway' ? 'Takeaway' : 'Pesanan ' + t.round)) + ' · ' + esc(t.time) +
     (t.by ? ' · ' + esc(t.by) : '') + '</div>';
   const items = t.items.map(function (i) {
-    return '<div class="tk-item"><span class="tk-qty">' + i.qty + '×</span><span><b>' + esc(i.name) + '</b>' +
+    const step = done || isVoid ? '<span class="rdy-n">' + (isVoid ? '' : i.rdy + ' / ' + i.qty + ' siap' + (i.srv ? ' · ' + i.srv + ' sudah diantar' : '')) + '</span>'
+      : '<div class="rdy-step"><button class="btn small" type="button" data-act="rdy" data-id="' + esc(t.id) + '" data-idx="' + i.idx + '" data-d="-1"' +
+        (i.rdy <= i.srv ? ' disabled' : '') + '>−</button><span class="rdy-n">' + i.rdy + ' / ' + i.qty + ' siap</span>' +
+        '<button class="btn small" type="button" data-act="rdy" data-id="' + esc(t.id) + '" data-idx="' + i.idx + '" data-d="1"' +
+        (i.rdy >= i.qty ? ' disabled' : '') + '>+</button></div>';
+    return '<div class="tk-item"><span class="tk-qty">' + i.qty + '×</span><span class="tk-main"><b>' + esc(i.name) + '</b>' +
       (isVoid && i.round ? ' <span class="small">(pesanan ' + i.round + ')</span>' : '') +
-      (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span></div>';
+      (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span>' + step + '</div>';
   }).join('');
   const reason = isVoid && t.reason ? '<div class="tk-reason">Alasan: ' + esc(t.reason) + '</div>' : '';
   let btn;
   if (done) btn = '<button class="btn small" type="button" data-act="undo" data-id="' + esc(t.id) + '">↶ Kembalikan ke antrian</button>';
   else if (isVoid) btn = '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">OK, sudah dilihat</button>';
-  else if (t.status === 'PROSES') btn = '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">✓ Siap diantar</button>';
+  else if (t.status === 'PROSES') btn = '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">✓ Semua siap</button>';
   else btn = '<div class="tk-btns"><button class="btn tk-start" type="button" data-act="start" data-id="' + esc(t.id) + '">▶ Mulai dibuat</button>' +
-    '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">✓ Siap</button></div>';
-  const stateTag = !done && !isVoid && t.status === 'PROSES' ? '<div class="tk-state">Sedang dibuat</div>' : '';
+    '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">✓ Semua siap</button></div>';
+  const partial = t.ready > 0 && t.ready < t.total;
+  const stateTag = !done && !isVoid && t.status === 'PROSES'
+    ? '<div class="tk-state">' + (partial ? 'Siap sebagian · ' + t.ready + ' dari ' + t.total + ' porsi' : 'Sedang dibuat') + '</div>' : '';
   const servedTag = done && t.status === 'SERVED' ? ' · sudah diantar' : '';
   return '<div class="ticket' + (isVoid ? ' void' : '') + (done ? ' done' : '') + '">' + head + stateTag + '<div class="tk-items">' + items + '</div>' + reason + btn + '</div>';
 }
@@ -176,10 +184,36 @@ async function kitDone(id, undo) {
   }
 }
 
+/** − / + for one item: how many portions are ready now (partial is fine). */
+async function kitSetReady(id, idx, d) {
+  const t = Kit.data && [].concat(Kit.data.open, Kit.data.done).filter(function (x) { return x.id === id; })[0];
+  const item = t && t.items.filter(function (i) { return i.idx === idx; })[0];
+  if (!item) return;
+  const next = Math.max(item.srv, Math.min(item.qty, item.rdy + d));
+  if (next === item.rdy) return;
+  try {
+    await api('apiKitchenSetReady', App.token, id, Kit.station, idx, next);
+    item.rdy = next;
+    kitRender();
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+  kitLoad(true);
+}
+
 /* ----- Layar Siap Diantar (kasir / server): pesanan per meja yang sudah siap atau masih dibuat ----- */
 const Serve = { data: null, tab: 'ready', timer: null, lastKeys: null, loading: false, offset: 0 };
-const SERVE_STAT = { NEW: 'belum dimulai', PROSES: 'sedang dibuat', DONE: 'siap', SERVED: 'sudah diantar' };
-const SERVE_CLS = { NEW: 'muted', PROSES: 'info', DONE: 'ready', SERVED: 'good' };
+const SERVE_STAT = { NEW: 'belum dimulai', PROSES: 'sedang dibuat', PART: 'sebagian siap', DONE: 'siap', SERVED: 'sudah diantar' };
+const SERVE_CLS = { NEW: 'muted', PROSES: 'info', PART: 'info', DONE: 'ready', SERVED: 'good' };
+
+/** "2 siap diantar · 1 belum siap" for one item line. */
+function serveLineLabel(i) {
+  const parts = [];
+  if (i.srv) parts.push(i.srv + ' sudah diantar');
+  if (i.rdy - i.srv > 0) parts.push((i.rdy - i.srv) + ' siap diantar');
+  if (i.qty - i.rdy > 0) parts.push((i.qty - i.rdy) + ' belum siap');
+  return parts.length ? parts.join(' · ') : SERVE_STAT[i.status];
+}
 
 App.resetHooks.push(function () { Serve.data = null; Serve.lastKeys = null; });
 
@@ -246,22 +280,24 @@ function serveCard(r) {
   const sts = r.stations;
   const head = '<div class="tk-head"><div><span class="tk-table">' + esc(r.table || '-') + '</span>' +
     (r.guest ? '<span class="tk-guest">' + esc(r.guest) + '</span>' : '') + '</div>' +
-    '<span class="tk-age ' + (ready ? '' : cls) + '">' + esc(age) + '</span></div>';
+    '<span class="tk-age ' + (ready && r.readyStamped ? '' : cls) + '">' + esc(ready && !r.readyStamped ? 'sebagian siap · masuk ' + m + ' mnt lalu' : age) + '</span></div>';
   const meta = '<div class="tk-meta"><b>Pesanan ' + r.round + '</b> · masuk ' + esc(r.time) + (r.by ? ' · ' + esc(r.by) : '') + '</div>';
   const stLine = '<div class="round-status serve-stations">' + Object.keys(sts).map(function (k) {
     return '<span class="rs-line"><span class="pill ' + SERVE_CLS[sts[k]] + '">' + (k === 'FOOD' ? 'Dapur' : 'Bar') + '</span>' + SERVE_STAT[sts[k]] + '</span>';
   }).join('') + '</div>';
   const items = r.lines.map(function (i) {
     return '<div class="tk-item serve-item' + (i.status === 'SERVED' ? ' served' : '') + '"><span class="tk-qty">' + i.qty + '×</span><span><b>' + esc(i.name) + '</b>' +
-      '<span><span class="pill ' + SERVE_CLS[i.status] + ' serve-st">' + (i.st === 'FOOD' ? 'Dapur' : 'Bar') + ' · ' + SERVE_STAT[i.status] + '</span></span>' +
+      '<span><span class="pill ' + SERVE_CLS[i.status] + ' serve-st">' + (i.st === 'FOOD' ? 'Dapur' : 'Bar') + ' · ' + esc(serveLineLabel(i)) + '</span></span>' +
       (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span></div>';
   }).join('');
   let btn = '';
   if (ready) {
-    const left = Object.keys(sts).filter(function (k) { return sts[k] === 'NEW' || sts[k] === 'PROSES'; });
+    const left = Object.keys(sts).filter(function (k) { return sts[k] === 'NEW' || sts[k] === 'PROSES' || sts[k] === 'PART'; });
     btn = '<button class="btn primary tk-done" type="button" data-act="serve" data-order="' + esc(r.orderId) + '" data-round="' + r.round + '">✓ Sudah diantar' +
       (left.length ? ' (yang siap)' : '') + '</button>' +
-      (left.length ? '<div class="small muted">' + left.map(function (k) { return k === 'FOOD' ? 'Dapur' : 'Bar'; }).join(' & ') + ' belum siap</div>' : '');
+      (left.length ? '<div class="small muted">' + left.map(function (k) {
+        return (k === 'FOOD' ? 'Dapur' : 'Bar') + ' ' + (sts[k] === 'PART' ? 'baru sebagian siap' : 'belum siap');
+      }).join(' · ') + '</div>' : '');
   }
   return '<div class="ticket">' + head + meta + stLine + '<div class="tk-items">' + items + '</div>' + btn + '</div>';
 }

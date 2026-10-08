@@ -1,13 +1,20 @@
 /**
  * Kitchen.gs
- * Kitchen and bar screens ("Layar Dapur" / "Layar Bar").
+ * Kitchen and bar screens ("Layar Dapur" / "Layar Bar") and the "Siap diantar" screen.
  *
  * A ticket is written to the Kitchen_Tickets sheet:
  *  - every time new items are saved on a table (one ticket per round: "Pesanan 2"),
  *  - when a takeaway order is paid,
  *  - when saved items are voided or a bill is voided (Kind VOID, shown in red as "BATAL").
  * Food (Recipe_Group FOOD) goes to the kitchen screen; drinks (BEVERAGE) and others (NONE) go to the bar.
- * Each station marks its part of the ticket "Selesai" independently.
+ *
+ * Progress is counted per portion, not per ticket. Each item in Items_JSON has:
+ *   qty  - portions ordered
+ *   rdy  - portions ready in the kitchen/bar (can be partial: 2 of 3)
+ *   srv  - portions already delivered to the table (srv <= rdy <= qty)
+ * The station status (Food_Status / Bar_Status) is derived from these counts and kept in sync:
+ *   NEW (belum dimulai) -> PROSES (sedang dibuat) -> DONE (semua siap) -> SERVED (semua sudah diantar).
+ * Round state for the table (stationStates_): NEW | PROSES | PART (sebagian siap, belum diantar) | DONE | SERVED.
  */
 
 function stationOf_(grp) { return String(grp || '').toUpperCase() === 'FOOD' ? 'FOOD' : 'BAR'; }
@@ -28,7 +35,7 @@ function createTicket_(info, lines, products) {
       }
       const extra = modsText_(l.mods);
       return { name: String(l.name) + (extra ? ' + ' + extra : ''), qty: Number(l.qty) || 0, note: String(l.note || ''), st: stationOf_(grp),
-               round: Number(l.round) || 0 };
+               round: Number(l.round) || 0, rdy: 0, srv: 0 };
     });
     const hasFood = items.some(function (i) { return i.st === 'FOOD'; });
     const hasBar = items.some(function (i) { return i.st === 'BAR'; });
@@ -55,46 +62,67 @@ function stationPerm_(station) {
   throw new Error('Layar tidak dikenal.');
 }
 
-function ticketFromRow_(r, station) {
+/** { items, reason } of one ticket row (both stations). */
+function ticketData_(r) {
   let data = { items: [], reason: '' };
   try { data = JSON.parse(String(r.Items_JSON || '{}')) || data; } catch (e) { /* broken cell */ }
-  const statusCol = station === 'FOOD' ? 'Food_Status' : 'Bar_Status';
-  const doneCol = station === 'FOOD' ? 'Food_Done_At' : 'Bar_Done_At';
-  const created = cellText_(r.Created_At);
-  const doneStamp = cellText_(r[doneCol]);
-  let serveMin = null;                       // minutes from order to "Selesai" (finished tickets only)
-  try {
-    if (doneStamp && Number(r.Created_Ms)) {
-      const doneMs = Utilities.parseDate(doneStamp, tz_(), 'yyyy-MM-dd HH:mm:ss').getTime();
-      serveMin = Math.max(0, Math.round((doneMs - Number(r.Created_Ms)) / 60000));
-    }
-  } catch (e) { serveMin = null; }
-  return {
-    serveMin: serveMin,
-    row: r._row, id: String(r.Ticket_ID), orderId: String(r.Order_ID || ''), table: String(r.Table_Name || ''),
-    guest: String(r.Guest_Name || ''), round: Number(r.Round) || 0, kind: String(r.Kind || 'ORDER'),
-    createdMs: Number(r.Created_Ms) || 0, time: created.slice(11, 16), date: dateText_(r.Date), by: String(r.Created_By || ''),
-    items: (data.items || []).filter(function (i) { return i.st === station; }),
-    reason: String(data.reason || ''),
-    status: String(r[statusCol] || ''), doneAt: cellText_(r[doneCol]).slice(11, 16)
-  };
+  data.items = data.items || [];
+  data.reason = String(data.reason || '');
+  return data;
 }
 
-/* ----- Station status per order round -----
- * Food_Status / Bar_Status on each ticket: NEW (belum dimulai) -> PROSES (sedang dibuat) -> DONE (siap diantar) -> SERVED (sudah diantar).
- * Each station is judged on its own: a round with a drink ready (Bar DONE) is already "siap diantar" even while the food is still cooking. */
-var STATION_RANK_ = { NEW: 1, PROSES: 2, DONE: 3, SERVED: 4 };
+function ticketItems_(r) { return ticketData_(r).items; }
 
-/** { FOOD: status, BAR: status } for one round (the least advanced status when a round has several tickets). */
+/** Portions for one station on one ticket: tot = ordered, rdy = ready, srv = delivered. */
+function itemCounts_(items, station) {
+  let tot = 0, rdy = 0, srv = 0;
+  (items || []).forEach(function (i) {
+    if (i.st !== station) return;
+    const q = Number(i.qty) || 0;
+    const r = Math.min(q, Number(i.rdy) || 0);
+    tot += q;
+    rdy += r;
+    srv += Math.min(r, Number(i.srv) || 0);
+  });
+  return { tot: tot, rdy: rdy, srv: srv };
+}
+
+/** Portions ready in the kitchen/bar and not yet delivered. */
+function unitsToServe_(i) {
+  const q = Number(i.qty) || 0;
+  return Math.max(0, Math.min(q, Number(i.rdy) || 0) - (Number(i.srv) || 0));
+}
+
+/** Queue status of one station on one ticket: NEW -> PROSES -> DONE (all ready) -> SERVED (all delivered). */
+function stationQueue_(items, station, started) {
+  const c = itemCounts_(items, station);
+  if (c.tot && c.rdy >= c.tot) return c.srv >= c.tot ? 'SERVED' : 'DONE';
+  return started ? 'PROSES' : 'NEW';
+}
+
+/** Round state for one station, over all tickets of the round. */
+function roundStationState_(rows, station) {
+  const col = station === 'FOOD' ? 'Food_Status' : 'Bar_Status';
+  let tot = 0, rdy = 0, srv = 0, started = false;
+  rows.forEach(function (r) {
+    const c = itemCounts_(ticketItems_(r), station);
+    tot += c.tot; rdy += c.rdy; srv += c.srv;
+    const colVal = String(r[col] || '');
+    if (c.tot && (c.rdy > 0 || (colVal && colVal !== 'NEW'))) started = true;
+  });
+  if (!tot) return '';
+  if (srv >= tot) return 'SERVED';
+  if (rdy >= tot) return 'DONE';
+  if (rdy > srv) return 'PART';                  // some portions ready, not all yet
+  return started ? 'PROSES' : 'NEW';
+}
+
+/** { FOOD: state, BAR: state } for one round. Only stations that the round has. */
 function stationStates_(rows) {
   const out = {};
-  rows.forEach(function (r) {
-    [['FOOD', 'Food_Status'], ['BAR', 'Bar_Status']].forEach(function (pair) {
-      const s = String(r[pair[1]] || '');
-      if (!s || !STATION_RANK_[s]) return;
-      const cur = out[pair[0]];
-      if (!cur || STATION_RANK_[s] < STATION_RANK_[cur]) out[pair[0]] = s;
-    });
+  ['FOOD', 'BAR'].forEach(function (st) {
+    const s = roundStationState_(rows, st);
+    if (s) out[st] = s;
   });
   return out;
 }
@@ -116,14 +144,67 @@ function kitchenStateMap_() {
   return out;
 }
 
-/** Rounds with at least one station ready and not yet delivered. */
+/** Rounds with something ready to deliver (all of it, or part of it). */
 function countReady_(stateObj) {
   return Object.keys(stateObj || {}).filter(function (k) {
-    return Object.keys(stateObj[k] || {}).some(function (st) { return stateObj[k][st] === 'DONE'; });
+    return Object.keys(stateObj[k] || {}).some(function (st) {
+      return stateObj[k][st] === 'DONE' || stateObj[k][st] === 'PART';
+    });
   }).length;
 }
 
-/** Kasir/server: marks a round as delivered ("Sudah diantar"). Only when the kitchen has marked it siap. */
+/**
+ * Writes Items_JSON and the station columns (status + Done_At) of one ticket from its item counts.
+ * forceNew: station whose items are sent back to the queue (undo), or ''.
+ */
+function saveTicketItems_(r, data, forceNew) {
+  const fields = { Items_JSON: JSON.stringify(data) };
+  [['FOOD', 'Food_Status', 'Food_Done_At'], ['BAR', 'Bar_Status', 'Bar_Done_At']].forEach(function (p) {
+    const old = String(r[p[1]] || '');
+    if (!old) return;                                   // this ticket has no items for that station
+    const c = itemCounts_(data.items, p[0]);
+    const started = forceNew !== p[0] && (old !== 'NEW' || c.rdy > 0);
+    const q = stationQueue_(data.items, p[0], started);
+    fields[p[1]] = q;
+    fields[p[2]] = (q === 'DONE' || q === 'SERVED') ? (cellText_(r[p[2]]) || nowStamp_()) : '';
+  });
+  updateRow_('Kitchen_Tickets', r._row, fields);
+}
+
+function ticketFromRow_(r, station) {
+  const data = ticketData_(r);
+  const statusCol = station === 'FOOD' ? 'Food_Status' : 'Bar_Status';
+  const doneCol = station === 'FOOD' ? 'Food_Done_At' : 'Bar_Done_At';
+  const created = cellText_(r.Created_At);
+  const doneStamp = cellText_(r[doneCol]);
+  let serveMin = null;                       // minutes from order to "Selesai" (finished tickets only)
+  try {
+    if (doneStamp && Number(r.Created_Ms)) {
+      const doneMs = Utilities.parseDate(doneStamp, tz_(), 'yyyy-MM-dd HH:mm:ss').getTime();
+      serveMin = Math.max(0, Math.round((doneMs - Number(r.Created_Ms)) / 60000));
+    }
+  } catch (e) { serveMin = null; }
+  const colVal = String(r[statusCol] || '');
+  const c = itemCounts_(data.items, station);
+  const started = !!colVal && (colVal !== 'NEW' || c.rdy > 0);
+  return {
+    serveMin: serveMin,
+    row: r._row, id: String(r.Ticket_ID), orderId: String(r.Order_ID || ''), table: String(r.Table_Name || ''),
+    guest: String(r.Guest_Name || ''), round: Number(r.Round) || 0, kind: String(r.Kind || 'ORDER'),
+    createdMs: Number(r.Created_Ms) || 0, time: created.slice(11, 16), date: dateText_(r.Date), by: String(r.Created_By || ''),
+    items: data.items.map(function (i, idx) {
+      const q = Number(i.qty) || 0;
+      return { idx: idx, name: i.name, qty: q, note: i.note || '', st: i.st, round: i.round,
+               rdy: Math.min(q, Number(i.rdy) || 0), srv: Math.min(q, Number(i.srv) || 0) };
+    }).filter(function (i) { return i.st === station; }),
+    reason: data.reason,
+    status: colVal ? stationQueue_(data.items, station, started) : '',
+    ready: c.rdy, total: c.tot, served: c.srv,
+    doneAt: cellText_(r[doneCol]).slice(11, 16)
+  };
+}
+
+/** Kasir/server: delivers everything that is ready on a round ("Sudah diantar"). Partial rounds deliver the ready part. */
 function apiServeRound(token, orderId, round) {
   return run_(function () {
     const user = requirePerm_(token, 'tables.serve');
@@ -133,13 +214,16 @@ function apiServeRound(token, orderId, round) {
         return r.Ticket_ID && String(r.Kind || '') === 'ORDER' && String(r.Order_ID || '') === oid && (Number(r.Round) || 0) === rd;
       });
       if (!rows.length) throw new Error('Tidak ada pesanan dapur untuk pesanan ' + rd + '.');
-      const ready = rows.some(function (r) { return String(r.Food_Status || '') === 'DONE' || String(r.Bar_Status || '') === 'DONE'; });
+      const ready = rows.some(function (r) { return ticketItems_(r).some(function (i) { return unitsToServe_(i) > 0; }); });
       if (!ready) throw new Error('Belum ada yang siap di dapur/bar untuk pesanan ' + rd + '.');
       rows.forEach(function (r) {
-        const fields = {};
-        if (String(r.Food_Status || '') === 'DONE') fields.Food_Status = 'SERVED';
-        if (String(r.Bar_Status || '') === 'DONE') fields.Bar_Status = 'SERVED';
-        if (Object.keys(fields).length) updateRow_('Kitchen_Tickets', r._row, fields);
+        const data = ticketData_(r);
+        let changed = false;
+        data.items.forEach(function (i) {
+          const n = unitsToServe_(i);
+          if (n > 0) { i.srv = (Number(i.srv) || 0) + n; changed = true; }
+        });
+        if (changed) saveTicketItems_(r, data, '');
       });
       audit_(user, 'SERVED', 'Order', oid, { round: rd });
       return { orderId: oid, round: rd, state: 'SERVED' };
@@ -147,15 +231,7 @@ function apiServeRound(token, orderId, round) {
   });
 }
 
-/** Items of one ticket with the station that makes them (all stations, not one screen). */
-function ticketItems_(r) {
-  try { return (JSON.parse(String(r.Items_JSON || '{}')) || {}).items || []; } catch (e) { return []; }
-}
-
-/**
- * Layar "Siap diantar" (kasir / server): rounds of open tables that the kitchen or bar has finished
- * (ready) or is still making (cooking). Rounds that are fully delivered are left out. Polled every 15 s.
- */
+/** Layar "Siap diantar" (kasir / server): rounds of open tables with something ready (or still cooking). Polled every 15 s. */
 function apiGetServe(token) {
   return run_(function () {
     requirePerm_(token, 'tables.serve');
@@ -176,36 +252,41 @@ function apiGetServe(token) {
       const states = stationStates_(rs);
       const stations = Object.keys(states);
       if (!stations.length) return;
+      if (!stations.some(function (st) { return states[st] !== 'SERVED'; })) return;   // everything delivered
+      const isReady = stations.some(function (st) { return states[st] === 'DONE' || states[st] === 'PART'; });
       const lines = [];
       let readyMs = 0, readyAt = '';
       rs.forEach(function (r) {
+        const colVal = {}; colVal.FOOD = String(r.Food_Status || ''); colVal.BAR = String(r.Bar_Status || '');
         ['FOOD', 'BAR'].forEach(function (st) {
-          const col = st === 'FOOD' ? 'Food_Status' : 'Bar_Status';
           const doneCol = st === 'FOOD' ? 'Food_Done_At' : 'Bar_Done_At';
-          const status = String(r[col] || '');
-          if (!status) return;
-          if (status === 'DONE' || status === 'SERVED') {
-            const stamp = cellText_(r[doneCol]);
-            try {                                        // earliest "siap" moment of the round
-              const ms = stamp ? Utilities.parseDate(stamp, tz_(), 'yyyy-MM-dd HH:mm:ss').getTime() : 0;
-              if (ms && (!readyMs || ms < readyMs)) { readyMs = ms; readyAt = stamp.slice(11, 16); }
-            } catch (e) { /* broken stamp: skip */ }
-          }
-          ticketItems_(r).filter(function (i) { return i.st === st; }).forEach(function (i) {
-            lines.push({ qty: i.qty, name: i.name, note: i.note || '', st: st, status: status });
-          });
+          const stamp = cellText_(r[doneCol]);
+          try {                                        // earliest "siap" moment of the round
+            const ms = stamp ? Utilities.parseDate(stamp, tz_(), 'yyyy-MM-dd HH:mm:ss').getTime() : 0;
+            if (ms && (!readyMs || ms < readyMs)) { readyMs = ms; readyAt = stamp.slice(11, 16); }
+          } catch (e) { /* broken stamp: skip */ }
+        });
+        const data = ticketData_(r);
+        data.items.forEach(function (i) {
+          if (i.st !== 'FOOD' && i.st !== 'BAR') return;
+          const q = Number(i.qty) || 0;
+          const rd = Math.min(q, Number(i.rdy) || 0), sv = Math.min(rd, Number(i.srv) || 0);
+          let status;
+          if (sv >= q) status = 'SERVED';
+          else if (rd >= q) status = 'DONE';
+          else if (rd > 0) status = 'PART';
+          else status = colVal[i.st] && colVal[i.st] !== 'NEW' ? 'PROSES' : 'NEW';
+          lines.push({ qty: q, name: i.name, note: i.note || '', st: i.st, status: status, rdy: rd, srv: sv });
         });
       });
-      const hasLeft = stations.some(function (st) { return states[st] !== 'SERVED'; });
-      if (!hasLeft) return;                              // everything delivered
-      const isReady = stations.some(function (st) { return states[st] === 'DONE'; });
       const createdMs = Math.min.apply(null, rs.map(function (r) { return Number(r.Created_Ms) || 0; }).filter(Boolean));
-      if (isReady && !readyMs) readyMs = createdMs;     // no stamp on a ready round: fall back to order time
+      const readyStamped = !!readyMs;
+      if (isReady && !readyMs) readyMs = createdMs;   // no stamp yet (only part is ready): age counts from the order
       const card = {
         orderId: o.id, round: Number(rs[0].Round) || 0, table: o.tableName, guest: o.guestName || '', pax: o.pax || 0,
         time: cellText_(rs[0].Created_At).slice(11, 16), createdMs: createdMs, by: String(rs[0].Created_By || ''),
-        stations: states, lines: lines, readyAt: readyAt, readyMs: isReady ? readyMs : 0,
-        state: isReady ? 'READY' : 'COOKING'
+        stations: states, lines: lines, readyAt: readyAt, readyStamped: readyStamped,
+        readyMs: isReady ? readyMs : 0, state: isReady ? 'READY' : 'COOKING'
       };
       (isReady ? ready : cooking).push(card);
     });
@@ -275,7 +356,36 @@ function apiKitchenStart(token, ticketId, station) {
   });
 }
 
-/** Marks this station's part of a ticket as done (or back to open with undo = true). */
+/**
+ * Kitchen/bar marks how many portions of one item are ready (partial is fine: 2 of 3).
+ * count is clamped to 0..qty and never below what was already delivered.
+ */
+function apiKitchenSetReady(token, ticketId, station, idx, count) {
+  return run_(function () {
+    station = String(station || '').toUpperCase();
+    requirePerm_(token, stationPerm_(station));
+    return withLock_(function () {
+      const rows = rowsWhere_('Kitchen_Tickets', 'Ticket_ID', String(ticketId || ''));
+      if (!rows.length) throw new Error('Tiket tidak ditemukan. Muat ulang layar.');
+      const r = rows[0];
+      const statusCol = station === 'FOOD' ? 'Food_Status' : 'Bar_Status';
+      if (!String(r[statusCol] || '')) throw new Error('Tiket ini tidak punya item untuk layar ini.');
+      const data = ticketData_(r);
+      const i = data.items[Number(idx)];
+      if (!i || i.st !== station) throw new Error('Item tidak ditemukan. Muat ulang layar.');
+      const q = Number(i.qty) || 0, sv = Number(i.srv) || 0;
+      const n = Math.max(sv, Math.min(q, Math.floor(Number(count) || 0)));
+      i.rdy = n;
+      saveTicketItems_(r, data, '');
+      return { rdy: n, qty: q };
+    });
+  });
+}
+
+/**
+ * Marks all portions of this station on a ticket as ready (done = true, "Semua siap"),
+ * or sends them back to the queue (undo = true, only when nothing was delivered yet).
+ */
 function apiKitchenDone(token, ticketId, station, undo) {
   return run_(function () {
     station = String(station || '').toUpperCase();
@@ -285,12 +395,15 @@ function apiKitchenDone(token, ticketId, station, undo) {
       if (!rows.length) throw new Error('Tiket tidak ditemukan. Muat ulang layar.');
       const r = rows[0];
       const statusCol = station === 'FOOD' ? 'Food_Status' : 'Bar_Status';
-      const doneCol = station === 'FOOD' ? 'Food_Done_At' : 'Bar_Done_At';
       if (!String(r[statusCol] || '')) throw new Error('Tiket ini tidak punya item untuk layar ini.');
-      const fields = {};
-      fields[statusCol] = undo ? 'NEW' : 'DONE';
-      fields[doneCol] = undo ? '' : nowStamp_();
-      updateRow_('Kitchen_Tickets', r._row, fields);
+      const data = ticketData_(r);
+      if (undo && data.items.some(function (i) { return i.st === station && (Number(i.srv) || 0) > 0; })) {
+        throw new Error('Sebagian sudah diantar, tidak bisa dikembalikan ke antrian.');
+      }
+      data.items.forEach(function (i) {
+        if (i.st === station) i.rdy = undo ? 0 : (Number(i.qty) || 0);
+      });
+      saveTicketItems_(r, data, undo ? station : '');
       if (undo) audit_(user, 'KITCHEN_UNDO', 'Ticket', String(ticketId), { station: station });
       return true;
     });
