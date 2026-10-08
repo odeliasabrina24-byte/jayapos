@@ -549,6 +549,13 @@ input.switch:disabled { opacity: .5; }
 .tk-state { display: inline-block; margin: 0 0 8px; font-size: 13px; font-weight: 800; color: var(--warn); background: #fbf0d9; padding: 4px 10px; border-radius: 99px; }
 .pill.ready { background: var(--ok); color: #fff; }
 .tbl-ready { display: inline-block; align-self: flex-start; margin-top: 4px; background: #fff; color: var(--ok); font-weight: 900; font-size: 11px; border-radius: 6px; padding: 1px 6px; }
+.round-status { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 8px 10px; margin: 6px 0; background: #faf6f2; border-radius: 10px; font-size: 13.5px; }
+.rs-line { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.rs-serve { margin-left: auto; min-height: 44px; font-weight: 800; }
+.rs-done { margin-left: auto; color: var(--ok); font-weight: 800; }
+.kit-pill span[data-go] { cursor: pointer; }
+.serve-item.served { opacity: .5; }
+.serve-st { margin-left: 6px; vertical-align: middle; }
 @media print {
   @page { margin: 2mm; }
   html, body { background: #fff !important; }

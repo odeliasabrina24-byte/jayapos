@@ -37,13 +37,12 @@ function kitBadgeRender() {
   const pill = $('kitPill');
   if (!pill) return;
   const c = KitBadge.c;
-  const parts = [];
-  if (c && c.FOOD !== null) parts.push('Dapur ' + c.FOOD);
-  if (c && c.BAR !== null) parts.push('Bar ' + c.BAR);
-  if (c && c.READY !== null && c.READY !== undefined) parts.push('Siap diantar ' + c.READY);
+  const parts = [];                       // each part opens its own screen (see HomeJs)
+  if (c && c.FOOD !== null) parts.push('<span data-go="kitchen">Dapur ' + c.FOOD + '</span>');
+  if (c && c.BAR !== null) parts.push('<span data-go="bar_orders">Bar ' + c.BAR + '</span>');
+  if (c && c.READY !== null && c.READY !== undefined) parts.push('<span data-go="serve">Siap diantar ' + c.READY + '</span>');
   pill.hidden = !parts.length;
   pill.innerHTML = parts.join(' · ') + (c && c.late ? ' <b class="kit-late">⚠ ' + c.late + '</b>' : '');
-  pill.dataset.go = c && c.FOOD !== null ? 'kitchen' : c && c.BAR !== null ? 'bar_orders' : 'tables';
   pill.classList.toggle('late', !!(c && c.late));
 }
 
@@ -175,5 +174,107 @@ async function kitDone(id, undo) {
   } catch (e) {
     toast(e.message, 'err');
   }
+}
+
+/* ----- Layar Siap Diantar (kasir / server): pesanan per meja yang sudah siap atau masih dibuat ----- */
+const Serve = { data: null, tab: 'ready', timer: null, lastKeys: null, loading: false, offset: 0 };
+const SERVE_STAT = { NEW: 'belum dimulai', PROSES: 'sedang dibuat', DONE: 'siap', SERVED: 'sudah diantar' };
+const SERVE_CLS = { NEW: 'muted', PROSES: 'info', DONE: 'ready', SERVED: 'good' };
+
+App.resetHooks.push(function () { Serve.data = null; Serve.lastKeys = null; });
+
+Views.serve = function () { serveShow(); };
+
+function serveShow() {
+  Mod.render('<div class="kit-top"><div class="filter-bar" id="serveTabs"></div>' +
+    '<div class="tools-right"><span class="small muted" id="serveStamp"></span><button class="btn small" type="button" data-act="reload">↻</button></div></div>' +
+    '<div class="kds" id="serveBody"><div class="empty">Memuat…</div></div>');
+  Mod.on({
+    reload: function () { serveLoad(false); },
+    tab: function (el) { Serve.tab = el.dataset.t; serveRender(); },
+    serve: function (el) { serveDelivered(el.dataset.order, el.dataset.round, el); }
+  });
+  serveLoad(false);
+  if (!Serve.timer) {
+    Serve.timer = setInterval(function () {
+      if (App.view === 'serve' && !document.hidden && App.token) serveLoad(true);
+      else if (App.view !== 'serve') { clearInterval(Serve.timer); Serve.timer = null; }
+    }, 15000);
+  }
+}
+
+async function serveLoad(silent) {
+  if (Serve.loading) return;
+  Serve.loading = true;
+  try {
+    const d = await api('apiGetServe', App.token);
+    if (App.view !== 'serve' || !$('serveBody')) return;
+    Serve.offset = Date.now() - d.serverNow;
+    const keys = d.ready.map(function (r) { return r.orderId + '|' + r.round; });
+    if (Serve.lastKeys && keys.some(function (k) { return Serve.lastKeys.indexOf(k) < 0; })) kitBeep();
+    Serve.lastKeys = keys;
+    Serve.data = d;
+    if (KitBadge.c) { KitBadge.c.READY = d.ready.length; kitBadgeRender(); }
+    serveRender();
+  } catch (e) {
+    if (!silent && $('serveBody')) $('serveBody').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
+  } finally {
+    Serve.loading = false;
+  }
+}
+
+function serveRender() {
+  const d = Serve.data;
+  if (!d || !$('serveBody')) return;
+  $('serveTabs').innerHTML = '<button class="chip' + (Serve.tab === 'ready' ? ' active' : '') + '" type="button" data-act="tab" data-t="ready">Siap diantar (' + d.ready.length + ')</button>' +
+    '<button class="chip' + (Serve.tab === 'cooking' ? ' active' : '') + '" type="button" data-act="tab" data-t="cooking">Sedang dibuat (' + d.cooking.length + ')</button>';
+  const now = new Date();
+  $('serveStamp').textContent = 'diperbarui ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  const ready = Serve.tab === 'ready';
+  const list = ready ? d.ready : d.cooking;
+  $('serveBody').innerHTML = list.length ? list.map(serveCard).join('')
+    : '<div class="empty">' + (ready ? 'Belum ada pesanan yang siap diantar. Layar ini memuat ulang sendiri setiap 15 detik.' : 'Tidak ada pesanan yang sedang dibuat.') + '</div>';
+}
+
+/** One table round: table, guest, round, status per station, every item, and the delivered button. */
+function serveCard(r) {
+  const ready = r.state === 'READY';
+  const since = ready ? r.readyMs : r.createdMs;
+  const m = Math.max(0, Math.floor((Date.now() - Serve.offset - since) / 60000));
+  const age = ready ? 'siap ' + (m < 1 ? 'baru saja' : m + ' mnt lalu') : (m < 1 ? 'baru masuk' : 'menunggu ' + m + ' mnt');
+  const cls = m >= 25 ? 'late' : m >= 15 ? 'slow' : '';
+  const sts = r.stations;
+  const head = '<div class="tk-head"><div><span class="tk-table">' + esc(r.table || '-') + '</span>' +
+    (r.guest ? '<span class="tk-guest">' + esc(r.guest) + '</span>' : '') + '</div>' +
+    '<span class="tk-age ' + (ready ? '' : cls) + '">' + esc(age) + '</span></div>';
+  const meta = '<div class="tk-meta"><b>Pesanan ' + r.round + '</b> · masuk ' + esc(r.time) + (r.by ? ' · ' + esc(r.by) : '') + '</div>';
+  const stLine = '<div class="round-status serve-stations">' + Object.keys(sts).map(function (k) {
+    return '<span class="rs-line"><span class="pill ' + SERVE_CLS[sts[k]] + '">' + (k === 'FOOD' ? 'Dapur' : 'Bar') + '</span>' + SERVE_STAT[sts[k]] + '</span>';
+  }).join('') + '</div>';
+  const items = r.lines.map(function (i) {
+    return '<div class="tk-item serve-item' + (i.status === 'SERVED' ? ' served' : '') + '"><span class="tk-qty">' + i.qty + '×</span><span><b>' + esc(i.name) + '</b>' +
+      '<span><span class="pill ' + SERVE_CLS[i.status] + ' serve-st">' + (i.st === 'FOOD' ? 'Dapur' : 'Bar') + ' · ' + SERVE_STAT[i.status] + '</span></span>' +
+      (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span></div>';
+  }).join('');
+  let btn = '';
+  if (ready) {
+    const left = Object.keys(sts).filter(function (k) { return sts[k] === 'NEW' || sts[k] === 'PROSES'; });
+    btn = '<button class="btn primary tk-done" type="button" data-act="serve" data-order="' + esc(r.orderId) + '" data-round="' + r.round + '">✓ Sudah diantar' +
+      (left.length ? ' (yang siap)' : '') + '</button>' +
+      (left.length ? '<div class="small muted">' + left.map(function (k) { return k === 'FOOD' ? 'Dapur' : 'Bar'; }).join(' & ') + ' belum siap</div>' : '');
+  }
+  return '<div class="ticket">' + head + meta + stLine + '<div class="tk-items">' + items + '</div>' + btn + '</div>';
+}
+
+async function serveDelivered(orderId, round, el) {
+  if (el) el.disabled = true;
+  try {
+    await api('apiServeRound', App.token, orderId, Number(round));
+    toast('Pesanan ' + round + ' sudah diantar.');
+  } catch (e) {
+    toast(e.message, 'err');
+    if (el) el.disabled = false;
+  }
+  serveLoad(true);
 }
 </script>

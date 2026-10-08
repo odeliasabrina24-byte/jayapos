@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.3.8';
+const APP_VERSION = '3.3.9';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -55,6 +55,7 @@ const NAV = [
   { id: 'home',             section: 'Penjualan',    label: 'Beranda',           perms: ['pos.sell'], ready: true },
   { id: 'pos',              section: 'Penjualan',    label: 'Kasir (POS)',       perms: ['pos.sell', 'pos.order'], ready: true },
   { id: 'tables',           section: 'Penjualan',    label: 'Meja',            perms: ['tables.serve', 'tables.layout'], ready: true },
+  { id: 'serve',            section: 'Penjualan',    label: 'Siap Diantar',      perms: ['tables.serve'], ready: true },
   { id: 'shift',            section: 'Penjualan',    label: 'Kas & Shift',       perms: ['shift.manage', 'shift.view'], ready: true },
   { id: 'soldout',          section: 'Penjualan',    label: 'Menu Habis',        perms: ['menu.soldout'], ready: true },
   { id: 'history',          section: 'Penjualan',    label: 'Riwayat Penjualan',     perms: ['history.view_all', 'history.view_recent'], ready: true },
