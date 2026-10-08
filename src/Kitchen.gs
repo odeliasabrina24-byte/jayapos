@@ -374,7 +374,8 @@ function apiKitchenCount(token) {
       return r.Ticket_ID && dateText_(r.Date) >= yesterday;
     });
     const out = { FOOD: null, BAR: null, BAR_TABLES: 0, late: 0, READY: null,
-                  FOOD_LEFT: null, FOOD_ORDERS: 0, BAR_LEFT: null, BAR_ORDERS: 0 };
+                  FOOD_LEFT: null, FOOD_ORDERS: 0, BAR_LEFT: null, BAR_ORDERS: 0,
+                  RDY_FOOD: null, RDY_FOOD_ORDERS: 0, RDY_BAR: null, RDY_BAR_ORDERS: 0 };
     const barTables = {};
     if (hasPerm_(user, 'kitchen.food')) out.FOOD_LEFT = 0;
     if (hasPerm_(user, 'kitchen.bar')) out.BAR_LEFT = 0;
@@ -404,16 +405,25 @@ function apiKitchenCount(token) {
     });
     out.BAR_TABLES = Object.keys(barTables).length;
     // Still to deliver (made or not yet made, not "Sudah diantar"), counted per pesanan: same tickets as Siap diantar
+    // Ready and not yet delivered (ready part): the same portions the Siap diantar cards show
     const left = { FOOD: { n: 0, o: {} }, BAR: { n: 0, o: {} } };
+    const ready = { FOOD: { n: 0, o: {} }, BAR: { n: 0, o: {} } };
     serveTickets_(serveOrders_()).forEach(function (r) {
+      const key = String(r.Order_ID) + '|' + (Number(r.Round) || 0);
       ['FOOD', 'BAR'].forEach(function (st) {
-        const n = ticketItems_(r).filter(function (i) { return i.st === st; })
-          .reduce(function (s, i) { return s + Math.max(0, (Number(i.qty) || 0) - (Number(i.srv) || 0)); }, 0);
-        if (n > 0) { left[st].n += n; left[st].o[String(r.Order_ID) + '|' + (Number(r.Round) || 0)] = true; }
+        const items = ticketItems_(r).filter(function (i) { return i.st === st; });
+        const n = items.reduce(function (s, i) { return s + Math.max(0, (Number(i.qty) || 0) - (Number(i.srv) || 0)); }, 0);
+        if (n > 0) { left[st].n += n; left[st].o[key] = true; }
+        const m = items.reduce(function (s, i) { return s + unitsToServe_(i); }, 0);
+        if (m > 0) { ready[st].n += m; ready[st].o[key] = true; }
       });
     });
     if (out.FOOD_LEFT !== null) { out.FOOD_LEFT = left.FOOD.n; out.FOOD_ORDERS = Object.keys(left.FOOD.o).length; }
     if (out.BAR_LEFT !== null) { out.BAR_LEFT = left.BAR.n; out.BAR_ORDERS = Object.keys(left.BAR.o).length; }
+    if (out.READY !== null) {
+      out.RDY_FOOD = ready.FOOD.n; out.RDY_FOOD_ORDERS = Object.keys(ready.FOOD.o).length;
+      out.RDY_BAR = ready.BAR.n; out.RDY_BAR_ORDERS = Object.keys(ready.BAR.o).length;
+    }
     return out;
   });
 }

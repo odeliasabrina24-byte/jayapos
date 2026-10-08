@@ -88,7 +88,11 @@ function homeRender() {
   if (hasNav('pos')) big.push('<button class="home-big take" type="button" data-home="take"><span class="hb-title">Take away</span><span class="hb-sub">Pesanan baru</span></button>');
   // Live screens: big buttons like Dine-in. Green = something to make or deliver, white = nothing waiting.
   const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
-  if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', kb.READY, '', 'Belum ada yang siap', 'green'));
+  // Ready to deliver, per station, counted per pesanan (same wording as Layar Barista)
+  const readyLines = [];
+  if (kb.RDY_FOOD) readyLines.push('Makanan <b>' + kb.RDY_FOOD + '</b> dari ' + (kb.RDY_FOOD_ORDERS || 0) + ' pesanan');
+  if (kb.RDY_BAR) readyLines.push('Minuman <b>' + kb.RDY_BAR + '</b> dari ' + (kb.RDY_BAR_ORDERS || 0) + ' pesanan');
+  if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', kb.READY, '', 'Belum ada yang siap', 'green', readyLines.join('<br>')));
   // Minuman = drinks not yet delivered; Makanan = food not yet delivered (both per pesanan), shown inside the tile
   const barExtra = kb.FOOD_LEFT != null ? 'Makanan <b>' + kb.FOOD_LEFT + '</b> dari ' + (kb.FOOD_ORDERS || 0) + ' pesanan' : '';
   if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR_LEFT,
