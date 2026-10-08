@@ -1,7 +1,7 @@
 <script>
 /* ================= KitchenJs: Layar Dapur / Layar Bar (order tickets) ================= */
 
-const Kit = { station: null, data: null, tab: 'open', timer: null, lastIds: null, offset: 0, loading: false };
+const Kit = { station: null, data: null, tab: 'open', timer: null, lastIds: null, offset: 0, loading: false, pend: {} };
 const KIT_NAMES = { FOOD: 'Dapur', BAR: 'Bar' };
 
 App.resetHooks.push(function () { Kit.station = null; Kit.data = null; Kit.lastIds = null; kitBadgeStop(); });
@@ -50,7 +50,7 @@ Views.kitchen = function () { kitShow('FOOD'); };
 Views.bar_orders = function () { kitShow('BAR'); };
 
 function kitShow(station) {
-  if (Kit.station !== station) { Kit.lastIds = null; Kit.tab = 'open'; Kit.data = null; }
+  if (Kit.station !== station) { Kit.lastIds = null; Kit.tab = 'open'; Kit.data = null; Kit.pend = {}; }
   Kit.station = station;
   Mod.render('<div class="kit-top"><div class="filter-bar" id="kitTabs"></div>' +
     '<div class="tools-right"><span class="small muted" id="kitStamp"></span><button class="btn small" type="button" data-act="reload">↻</button></div></div>' +
@@ -60,7 +60,9 @@ function kitShow(station) {
     tab: function (el) { Kit.tab = el.dataset.t; kitRender(); },
     done: function (el) { kitDone(el.dataset.id, false); },
     undo: function (el) { kitDone(el.dataset.id, true); },
-    rdy: function (el) { kitSetReady(el.dataset.id, Number(el.dataset.idx), Number(el.dataset.d)); },
+    pbox: function (el) { kitToggleBox(el.dataset.id, Number(el.dataset.idx), Number(el.dataset.n)); },
+    send: function (el) { kitSendPending(el.dataset.id); },
+    cancelpend: function (el) { kitClearPend(el.dataset.id); kitRender(); },
     start: function (el) { kitStart(el.dataset.id); }
   });
   kitLoad(false);
@@ -121,23 +123,35 @@ function kitCard(t, done) {
     '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ keluar ' + esc(t.doneAt) + (t.serveMin != null ? ' · ' + t.serveMin + ' mnt' : '') + servedTag : esc(age.text)) + '</span></div>' +
     '<div class="tk-meta">' + (isVoid ? '<b>BATAL</b>' : (t.table === 'Takeaway' ? 'Takeaway' : 'Pesanan ' + t.round)) + ' · ' + esc(t.time) +
     (t.by ? ' · ' + esc(t.by) : '') + '</div>';
+  const eff = function (i) { const p = Kit.pend[kitPendKey(t.id, i.idx)]; return p === undefined ? i.rdy : p; };
+  const dirty = !done && !isVoid && t.items.some(function (i) { return Kit.pend[kitPendKey(t.id, i.idx)] !== undefined; });
   const items = t.items.map(function (i) {
-    const step = done || isVoid ? '<span class="rdy-n">' + (isVoid ? '' : i.rdy + ' / ' + i.qty + ' siap' + (i.srv ? ' · ' + i.srv + ' sudah diantar' : '')) + '</span>'
-      : '<div class="rdy-step"><button class="btn small" type="button" data-act="rdy" data-id="' + esc(t.id) + '" data-idx="' + i.idx + '" data-d="-1"' +
-        (i.rdy <= i.srv ? ' disabled' : '') + '>−</button><span class="rdy-n">' + i.rdy + ' / ' + i.qty + ' siap</span>' +
-        '<button class="btn small" type="button" data-act="rdy" data-id="' + esc(t.id) + '" data-idx="' + i.idx + '" data-d="1"' +
-        (i.rdy >= i.qty ? ' disabled' : '') + '>+</button></div>';
-    return '<div class="tk-item"><span class="tk-qty">' + i.qty + '×</span><span class="tk-main"><b>' + esc(i.name) + '</b>' +
+    const row = '<div class="tk-item"><span class="tk-qty">' + i.qty + '×</span><span class="tk-main"><b>' + esc(i.name) + '</b>' +
       (isVoid && i.round ? ' <span class="small">(pesanan ' + i.round + ')</span>' : '') +
-      (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span>' + step + '</div>';
+      (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span>' +
+      (done || isVoid ? '<span class="rdy-n">' + (isVoid ? '' : i.rdy + ' / ' + i.qty + ' siap' + (i.srv ? ' · ' + i.srv + ' sudah diantar' : '')) + '</span>' : '') + '</div>';
+    if (done || isVoid) return row;
+    const cur = eff(i);
+    let boxes = '';
+    for (let n = 1; n <= i.qty; n++) {
+      const sent = n <= i.srv, on = n <= cur, pend = on !== (n <= i.rdy);
+      boxes += '<button class="pbox' + (sent ? ' sent' : on ? ' on' : '') + (pend && !sent ? ' pend' : '') + '" type="button" data-act="pbox" data-id="' +
+        esc(t.id) + '" data-idx="' + i.idx + '" data-n="' + n + '"' + (sent ? ' disabled' : '') + ' aria-label="porsi ' + n + '">' + (on ? '✓' : '') + '</button>';
+    }
+    return row + '<div class="pboxes">' + boxes + '<span class="pbox-n">' + cur + ' / ' + i.qty + ' siap</span></div>';
   }).join('');
   const reason = isVoid && t.reason ? '<div class="tk-reason">Alasan: ' + esc(t.reason) + '</div>' : '';
+  const allCur = t.items.reduce(function (s, i) { return s + eff(i); }, 0);
+  const allTot = t.items.reduce(function (s, i) { return s + i.qty; }, 0);
+  const allBtn = '<button class="btn tk-done-alt" type="button" data-act="done" data-id="' + esc(t.id) + '">Semua siap</button>';
   let btn;
   if (done) btn = '<button class="btn small" type="button" data-act="undo" data-id="' + esc(t.id) + '">↶ Kembalikan ke antrian</button>';
   else if (isVoid) btn = '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">OK, sudah dilihat</button>';
-  else if (t.status === 'PROSES') btn = '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">✓ Semua siap</button>';
-  else btn = '<div class="tk-btns"><button class="btn tk-start" type="button" data-act="start" data-id="' + esc(t.id) + '">▶ Mulai dibuat</button>' +
-    '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">✓ Semua siap</button></div>';
+  else if (dirty) btn = '<div class="tk-btns"><button class="btn tk-cancel" type="button" data-act="cancelpend" data-id="' + esc(t.id) + '">Batal</button>' +
+    '<button class="btn primary tk-done" type="button" data-act="send" data-id="' + esc(t.id) + '">' +
+    (allCur >= allTot ? 'Kirim: semua siap' : 'Kirim ' + allCur + ' dari ' + allTot + ' porsi ke kasir') + '</button></div>';
+  else if (t.status === 'PROSES') btn = allBtn;
+  else btn = '<div class="tk-btns"><button class="btn tk-start" type="button" data-act="start" data-id="' + esc(t.id) + '">▶ Mulai dibuat</button>' + allBtn + '</div>';
   const partial = t.ready > 0 && t.ready < t.total;
   const stateTag = !done && !isVoid && t.status === 'PROSES'
     ? '<div class="tk-state">' + (partial ? 'Siap sebagian · ' + t.ready + ' dari ' + t.total + ' porsi' : 'Sedang dibuat') + '</div>' : '';
@@ -168,6 +182,7 @@ async function kitStart(id) {
 }
 
 async function kitDone(id, undo) {
+  if (!undo) kitClearPend(id);
   try {
     await api('apiKitchenDone', App.token, id, Kit.station, undo);
     const from = undo ? Kit.data.done : Kit.data.open;
@@ -184,18 +199,48 @@ async function kitDone(id, undo) {
   }
 }
 
-/** − / + for one item: how many portions are ready now (partial is fine). */
-async function kitSetReady(id, idx, d) {
-  const t = Kit.data && [].concat(Kit.data.open, Kit.data.done).filter(function (x) { return x.id === id; })[0];
+/* ----- Siap sebagian: ketuk kotak porsi (hanya di layar, belum terkirim), lalu "Kirim ke kasir" ----- */
+function kitPendKey(id, idx) { return id + '|' + idx; }
+
+function kitTicket(id) {
+  const d = Kit.data;
+  return d && [].concat(d.open, d.done).filter(function (x) { return x.id === id; })[0];
+}
+
+/** Ketuk porsi n: kalau sudah centang, porsi n dan seterusnya dibatalkan; kalau belum, centang sampai n. */
+function kitToggleBox(id, idx, n) {
+  const t = kitTicket(id);
   const item = t && t.items.filter(function (i) { return i.idx === idx; })[0];
   if (!item) return;
-  const next = Math.max(item.srv, Math.min(item.qty, item.rdy + d));
-  if (next === item.rdy) return;
+  const k = kitPendKey(id, idx);
+  const cur = Kit.pend[k] === undefined ? item.rdy : Kit.pend[k];
+  const next = Math.max(item.srv, cur >= n ? n - 1 : n);
+  if (next === item.rdy) delete Kit.pend[k];
+  else Kit.pend[k] = next;
+  kitRender();
+}
+
+function kitClearPend(id) {
+  Object.keys(Kit.pend).forEach(function (k) { if (k.indexOf(id + '|') === 0) delete Kit.pend[k]; });
+}
+
+/** Kirim porsi yang sudah dicentang ke kasir (satu panggilan per item yang berubah). */
+async function kitSendPending(id) {
+  const t = kitTicket(id);
+  if (!t) return;
+  const todo = t.items.filter(function (i) { return Kit.pend[kitPendKey(id, i.idx)] !== undefined; });
   try {
-    await api('apiKitchenSetReady', App.token, id, Kit.station, idx, next);
-    item.rdy = next;
+    await Promise.all(todo.map(function (i) {
+      return api('apiKitchenSetReady', App.token, id, Kit.station, i.idx, Kit.pend[kitPendKey(id, i.idx)]);
+    }));
+    todo.forEach(function (i) { i.rdy = Kit.pend[kitPendKey(id, i.idx)]; });
+    kitClearPend(id);
+    const cur = t.items.reduce(function (s, i) { return s + i.rdy; }, 0);
+    const tot = t.items.reduce(function (s, i) { return s + i.qty; }, 0);
+    toast(cur >= tot ? 'Semua porsi siap · kasir sudah diberi tahu' : cur + ' dari ' + tot + ' porsi siap · kasir sudah diberi tahu');
     kitRender();
   } catch (e) {
+    kitClearPend(id);
     toast(e.message, 'err');
   }
   kitLoad(true);
