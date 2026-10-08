@@ -49,23 +49,6 @@ function kitBadgeRender() {
 Views.kitchen = function () { kitShow('FOOD'); };
 Views.bar_orders = function () { kitShow('BAR'); };
 
-/* Layar Barista: geser ke kiri langsung ke Siap Diantar. Tombol dan tab tidak ikut. */
-let barSwipe = null;
-document.addEventListener('touchstart', function (e) {
-  barSwipe = null;
-  if (App.view !== 'bar_orders' || e.touches.length !== 1) return;
-  if (e.target.closest('#kitTabs, button, input, .pbox')) return;
-  barSwipe = { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() };
-}, { passive: true });
-document.addEventListener('touchend', function (e) {
-  const s = barSwipe;
-  barSwipe = null;
-  if (!s || App.view !== 'bar_orders' || !App.nav.some(function (n) { return n.id === 'serve'; })) return;
-  const t = e.changedTouches[0];
-  const dx = t.clientX - s.x, dy = t.clientY - s.y;
-  if (dx < -60 && Math.abs(dy) < 70 && Date.now() - s.at < 900) go('serve');
-}, { passive: true });
-
 function kitShow(station) {
   if (Kit.station !== station) { Kit.lastIds = null; Kit.tab = 'open'; Kit.data = null; Kit.pend = {}; }
   Kit.station = station;
@@ -137,13 +120,20 @@ function kitAge(t) {
   return { text: m < 1 ? 'baru masuk' : 'menunggu ' + m + ' mnt', cls: m >= 25 ? 'late' : m >= 15 ? 'slow' : '' };
 }
 
+/** Minutes from order to "siap": from the server stamp, or from now for a ticket just marked done here. */
+function kitMinutes(t) {
+  if (t.serveMin != null) return t.serveMin;
+  if (!t.createdMs) return null;
+  return Math.max(0, Math.round((Date.now() - Kit.offset - t.createdMs) / 60000));
+}
+
 function kitCard(t, done) {
   const age = kitAge(t);
   const isVoid = t.kind === 'VOID';
   const busy = !!Kit.busy[t.id];
   const head = '<div class="tk-head"><div><span class="tk-table">' + esc(t.table || '-') + '</span>' +
     (t.guest ? '<span class="tk-guest">' + esc(t.guest) + '</span>' : '') + '</div>' +
-    '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ keluar ' + esc(t.doneAt) + (t.serveMin != null ? ' · ' + t.serveMin + ' mnt' : '') + servedTag : esc(age.text)) + '</span></div>' +
+    '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ siap ' + esc(t.doneAt) + (kitMinutes(t) != null ? ' · dibuat ' + kitMinutes(t) + ' mnt' : '') + servedTag : esc(age.text)) + '</span></div>' +
     '<div class="tk-meta">' + (isVoid ? '<b>BATAL</b>' : (/^TA-|^Takeaway$/.test(t.table) ? 'Takeaway' : 'Pesanan ' + t.round)) + ' · ' + esc(t.time) +
     (t.by ? ' · ' + esc(t.by) : '') + '</div>';
   const eff = function (i) { const p = Kit.pend[kitPendKey(t.id, i.idx)]; return p === undefined ? i.rdy : p; };
@@ -189,7 +179,7 @@ function kitRender() {
   const sum = d.summary || { portions: 0, tables: 0 };
   const openLabel = isBar ? 'Layar Barista (' + sum.portions + ' minuman)' : 'Antrian (' + d.open.length + ')';
   $('kitTabs').innerHTML = '<button class="chip' + (Kit.tab === 'open' ? ' active' : '') + '" type="button" data-act="tab" data-t="open">' + openLabel + '</button>' +
-    '<button class="chip' + (Kit.tab === 'done' ? ' active' : '') + '" type="button" data-act="tab" data-t="done">Selesai hari ini (' + d.done.length + ')</button>';
+    '<button class="chip' + (Kit.tab === 'done' ? ' active' : '') + '" type="button" data-act="tab" data-t="done">Sudah dibuat hari ini (' + d.done.length + ')</button>';
   const now = new Date();
   kitBadgeSet(isBar ? sum.portions : d.open.length, d.open.filter(function (t) { return kitAge(t).cls; }).length);
   if (isBar && KitBadge.c) KitBadge.c.BAR_TABLES = sum.tables;
@@ -198,7 +188,7 @@ function kitRender() {
   const summaryHtml = isBar && Kit.tab === 'open' && sum.portions
     ? '<div class="kit-sum">' + sum.tables + ' meja · ' + sum.portions + ' minuman belum selesai</div>' : '';
   $('kitBody').innerHTML = summaryHtml + (list.length ? list.map(function (t) { return kitCard(t, Kit.tab === 'done'); }).join('')
-    : '<div class="empty">' + (Kit.tab === 'open' ? 'Belum ada pesanan. Layar ini memuat ulang sendiri setiap 15 detik.' : 'Belum ada yang selesai hari ini.') + '</div>');
+    : '<div class="empty">' + (Kit.tab === 'open' ? 'Belum ada pesanan. Layar ini memuat ulang sendiri setiap 15 detik.' : 'Belum ada yang sudah dibuat hari ini.') + '</div>');
 }
 
 async function kitStart(id) {
@@ -230,6 +220,7 @@ async function kitDone(id, undo) {
     else { Kit.hide[id] = true; Kit.data.open = Kit.data.open.filter(function (x) { return x !== t; }); t.doneAt = new Date().toTimeString().slice(0, 5); Kit.data.done.unshift(t); }
     Kit.lastIds = Kit.data.open.map(function (x) { return x.id; });
     kitRender();
+    if (!undo) toast('Pindah ke "Sudah dibuat hari ini". Lihat di tab itu.');
   }
   try {
     await api('apiKitchenDone', App.token, id, Kit.station, undo);
