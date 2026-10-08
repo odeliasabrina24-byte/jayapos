@@ -99,10 +99,17 @@ function homeRender() {
   if (d.kitchen) tiles.push('<div class="home-tile"><span class="ht-label">Di dapur / bar</span><span class="ht-val">' + d.kitchen +
     '</span><span class="ht-sub">pesanan belum selesai</span></div>');
   if (hasNav('dashboard')) tiles.push(homeTile('dashboard', 'Dashboard', '›', 'Penjualan hari ini'));
+  // What is still to make, by station: makanan (food) and minuman (drinks), with the number of tables
+  const counts = [];
+  if (kb.FOOD_N != null) counts.push('Makanan <b>' + kb.FOOD_N + '</b> dari ' + (kb.FOOD_TABLES || 0) + ' meja');
+  if (kb.BAR != null) counts.push('Minuman <b>' + kb.BAR + '</b> dari ' + (kb.BAR_TABLES || 0) + ' meja');
   $('homeBody').innerHTML =
-    '<div class="home-hello"><h2>Halo, ' + esc(App.user.name) + '</h2><div class="muted small">' + esc(d.business) + '</div></div>' +
+    '<div class="home-hello"><div class="home-hello-row"><div><h2>Halo, ' + esc(App.user.name) + '</h2>' +
+    '<div class="muted small">' + esc(d.business) + '</div></div>' +
+    '<button class="btn small" type="button" data-home="reload">↻ Muat ulang</button></div></div>' +
     shiftHtml +
     (big.length ? '<div class="home-bigs">' + big.join('') + '</div>' : '') +
+    (counts.length ? '<div class="home-counts">' + counts.join(' · ') + '</div>' : '') +
     '<div class="home-tiles">' + tiles.join('') + '</div>';
 }
 
@@ -204,7 +211,7 @@ async function soToggle(input) {
     else if (a === 'shift') go('shift');
     else if (a === 'dine') go('tables');
     else if (a === 'take') homeTakeaway();
-    else if (a === 'reload') homeLoad();
+    else if (a === 'reload') { homeLoad(); kitBadgeLoad(); }
   });
   $('kitPill').addEventListener('click', function (e) {
     const g = e.target.closest('[data-go]');

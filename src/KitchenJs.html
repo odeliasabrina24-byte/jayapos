@@ -69,10 +69,12 @@ document.addEventListener('touchend', function (e) {
 function kitShow(station) {
   if (Kit.station !== station) { Kit.lastIds = null; Kit.tab = 'open'; Kit.data = null; Kit.pend = {}; }
   Kit.station = station;
-  Mod.render('<div class="kit-top"><div class="filter-bar" id="kitTabs"></div>' +
+  Mod.render('<div class="kit-top"><button class="btn small" type="button" data-act="home">‹ Beranda</button>' +
+    '<div class="filter-bar" id="kitTabs"></div>' +
     '<div class="tools-right"><span class="small muted" id="kitStamp"></span><button class="btn small" type="button" data-act="reload">↻</button></div></div>' +
     '<div class="kds" id="kitBody"><div class="empty">Memuat…</div></div>');
   Mod.on({
+    home: function () { go('home'); },
     reload: function () { kitLoad(false); },
     tab: function (el) { Kit.tab = el.dataset.t; kitRender(); },
     done: function (el) { kitDone(el.dataset.id, false); },
@@ -315,12 +317,14 @@ App.resetHooks.push(function () { Serve.data = null; Serve.lastKeys = null; });
 Views.serve = function () { serveShow(); };
 
 function serveShow() {
-  Mod.render('<div class="kit-top"><span class="sv-title" id="serveTitle"></span>' +
+  Mod.render('<div class="kit-top"><button class="btn small" type="button" data-act="home">‹ Beranda</button>' +
+    '<span class="sv-title" id="serveTitle"></span>' +
     '<div class="tools-right"><button class="btn small" type="button" data-act="toggle" id="serveSwitch"></button>' +
     '<button class="btn small" type="button" data-act="reload">↻</button></div></div>' +
     '<div class="small muted" id="serveStamp"></div>' +
     '<div class="kds" id="serveBody"><div class="empty">Memuat…</div></div>');
   Mod.on({
+    home: function () { go('home'); },
     reload: function () { serveLoad(false); },
     toggle: function () { Serve.view = Serve.view === 'ready' ? 'all' : 'ready'; Serve.focus = null; serveRender(); },
     table: function (el) { Serve.focus = el.dataset.order; Serve.view = 'all'; serveRender(); },
