@@ -88,7 +88,7 @@ function homeRender() {
   if (hasNav('pos')) big.push('<button class="home-big take" type="button" data-home="take"><span class="hb-title">Take away</span><span class="hb-sub">Pesanan baru</span></button>');
   // Live screens: big buttons like Dine-in. Green = something to make or deliver, white = nothing waiting.
   const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
-  if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', kb.READY, 'Ketuk untuk antar ke meja', 'Belum ada yang siap', 'green'));
+  if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', kb.READY, '', 'Belum ada yang siap', 'green'));
   // Minuman = drinks not yet delivered; Makanan = food not yet delivered (both per pesanan), shown inside the tile
   const barExtra = kb.FOOD_LEFT != null ? 'Makanan <b>' + kb.FOOD_LEFT + '</b> dari ' + (kb.FOOD_ORDERS || 0) + ' pesanan' : '';
   if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR_LEFT,
@@ -112,10 +112,11 @@ function homeRender() {
 
 function homeLive(view, title, n, subOn, subOff, tone, extra) {
   const on = n != null && n > 0;
+  const sub = on ? subOn : subOff;             // empty text: no line at all
   return '<button class="home-big live ' + (on ? 'on ' + tone : 'off') + '" type="button" data-go="' + view + '">' +
     '<span class="hb-title">' + esc(title) + '</span>' +
     '<span class="hb-val">' + (n == null ? '›' : esc(String(n))) + '</span>' +
-    '<span class="hb-sub">' + esc(on ? subOn : subOff) + '</span>' +
+    (sub ? '<span class="hb-sub">' + esc(sub) + '</span>' : '') +
     (extra ? '<span class="hb-extra">' + extra + '</span>' : '') + '</button>';
 }
 
