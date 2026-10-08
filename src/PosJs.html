@@ -33,6 +33,7 @@ Views.pos = function () {
   }
   if (!Pos.loaded) posLoad();
   else { posRenderAll(); posCheckShift(); }
+  if (Pos.ctx) posRefreshKitchen();
 };
 
 /** Price of one portion including add-ons (syrup etc.). */
@@ -281,7 +282,8 @@ function posEnterTable(order) {
 
 function posLoadBill(order) {
   Pos.ctx = { orderId: order.id, tableId: order.tableId, tableName: order.tableName, pax: order.pax, guest: order.guestName || '',
-              version: order.version, savedPax: order.pax, savedGuest: order.guestName || '', savedKey: '', paidCount: order.paidCount || 0 };
+              version: order.version, savedPax: order.pax, savedGuest: order.guestName || '', savedKey: '', paidCount: order.paidCount || 0,
+              kitchen: order.kitchen || {} };
   Pos.cart = (order.items || []).map(function (i) {
     const p = Pos.byId[i.id];
     return { lid: i.lid, id: i.id, name: p ? p.name : i.name, price: p ? p.price : i.price, qty: Number(i.qty) || 1, disc: i.disc || null,
@@ -907,7 +909,7 @@ function posCartHtml() {
   groups.sort(function (a, b) { return a.round - b.round || String(a.from).localeCompare(String(b.from)); });
   let html = groups.map(function (g) {
     return '<div class="round-head"><b>Pesanan ' + g.round + '</b>' + (g.at ? ' · ' + esc(g.at) : '') + (g.by ? ' · ' + esc(g.by) : '') +
-      (g.from ? ' · <span class="pill muted">dari ' + esc(g.from) + '</span>' : '') + '<span class="round-ok">✓ tersimpan</span></div>' +
+      (g.from ? ' · <span class="pill muted">dari ' + esc(g.from) + '</span>' : '') + '<span class="round-ok">✓ tersimpan</span>' + posRoundStatus(g.round) + '</div>' +
       g.lines.map(lineHtml).join('');
   }).join('');
   const fresh = Pos.cart.filter(function (l) { return !l.round; });
@@ -919,6 +921,33 @@ function posCartHtml() {
     html = '<div class="empty">Ketuk produk untuk menambahkan.</div>';
   }
   return html;
+}
+
+/** Status pill + "Sudah diantar" button for one saved round (table bills only). */
+function posRoundStatus(round) {
+  if (!Pos.ctx) return '';
+  const st = (Pos.ctx.kitchen || {})[String(round)];
+  if (st === 'SERVED') return '<span class="pill good">✓ Sudah diantar</span>';
+  if (st === 'READY') return '<span class="pill ready">SIAP · belum diantar</span><button class="btn small primary" type="button" data-serve="' + round + '">Sudah diantar</button>';
+  if (st === 'PROSES') return '<span class="pill info">Sedang dibuat</span>';
+  if (st === 'NEW') return '<span class="pill muted">Menunggu dapur/bar</span>';
+  return '';
+}
+
+async function posRefreshKitchen() {
+  if (!Pos.ctx) return;
+  try {
+    const o = await api('apiGetOpenOrder', App.token, Pos.ctx.orderId);
+    if (Pos.ctx && o.id === Pos.ctx.orderId) { Pos.ctx.kitchen = o.kitchen || {}; posRenderCart(); }
+  } catch (e) {}
+}
+
+async function posServe(round) {
+  try {
+    await api('apiServeRound', App.token, Pos.ctx.orderId, Number(round));
+    toast('Pesanan ' + round + ' ditandai sudah diantar.');
+    posRefreshKitchen();
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 function posRenderCart() {
@@ -1324,6 +1353,10 @@ function posBind() {
   $('completeBtn').addEventListener('click', posComplete);
   $('saveTableBtn').addEventListener('click', function () { posSaveTable(); });
   $('cartBar').addEventListener('click', function () { $('cartPanel').classList.add('open'); });
+  $('cartItems').addEventListener('click', function (e) {
+    const sb = e.target.closest('[data-serve]');
+    if (sb) posServe(sb.dataset.serve);
+  });
   $('cartClose').addEventListener('click', function () { $('cartPanel').classList.remove('open'); });
   $('receiptDone').addEventListener('click', function () { if (App.view === 'pos' && !Pos.ctx) $('cartPanel').classList.remove('open'); });
 }

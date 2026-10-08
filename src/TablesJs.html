@@ -77,7 +77,8 @@ function floorRender() {
     return '<button class="' + cls + '" type="button" data-tid="' + esc(t.id || t.tmp) + '" style="left:' + t.x + '%;top:' + t.y +
       '%;width:' + t.w + '%;height:' + t.h + '%"><span class="tbl-name">' + esc(t.name) + '</span>' +
       (o && o.guest ? '<span class="tbl-guest">' + esc(o.guest) + '</span>' : '') + '<span class="tbl-sub">' + sub + '</span>' +
-      (o ? '<span class="tbl-amt">' + (o.items ? 'Rp ' + fmtShort(o.subtotal) : 'belum ada item') + '</span>' : '') + '</button>';
+      (o ? '<span class="tbl-amt">' + (o.items ? 'Rp ' + fmtShort(o.subtotal) : 'belum ada item') + '</span>' : '') +
+      (o && o.ready ? '<span class="tbl-ready">SIAP ' + o.ready + '</span>' : '') + '</button>';
   }).join('') : '<div class="floor-empty">' + (Floor.editing ? 'Belum ada meja di area ini. Ketuk “+ Tambah meja”.' : 'Tidak ada meja di area ini.') + '</div>';
 
   if (!Floor.editing) {

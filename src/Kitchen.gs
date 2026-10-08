@@ -80,6 +80,65 @@ function ticketFromRow_(r, station) {
   };
 }
 
+/* ----- Station status per order round -----
+ * Food_Status / Bar_Status: NEW (belum dimulai) -> PROSES (sedang dibuat) -> DONE (siap diantar) -> SERVED (sudah diantar, dicatat server).
+ * Round state (for the whole round, all stations): NEW, PROSES, READY (siap, belum diantar), SERVED. */
+function roundState_(rows) {
+  const sts = [];
+  rows.forEach(function (r) {
+    ['Food_Status', 'Bar_Status'].forEach(function (c) { const s = String(r[c] || ''); if (s) sts.push(s); });
+  });
+  if (!sts.length) return '';
+  if (sts.every(function (s) { return s === 'SERVED'; })) return 'SERVED';
+  if (sts.every(function (s) { return s === 'DONE' || s === 'SERVED'; })) return 'READY';
+  if (sts.some(function (s) { return s === 'PROSES' || s === 'DONE' || s === 'SERVED'; })) return 'PROSES';
+  return 'NEW';
+}
+
+/** { orderId: { "1": state, "2": state } } for all recent order tickets (one sheet read). */
+function kitchenStateMap_() {
+  const groups = {};
+  readRecentRows_('Kitchen_Tickets', 400).forEach(function (r) {
+    if (!r.Ticket_ID || String(r.Kind || '') !== 'ORDER' || !r.Order_ID) return;
+    const oid = String(r.Order_ID), rd = String(Number(r.Round) || 0);
+    groups[oid] = groups[oid] || {};
+    (groups[oid][rd] = groups[oid][rd] || []).push(r);
+  });
+  const out = {};
+  Object.keys(groups).forEach(function (oid) {
+    out[oid] = {};
+    Object.keys(groups[oid]).forEach(function (rd) { out[oid][rd] = roundState_(groups[oid][rd]); });
+  });
+  return out;
+}
+
+function countReady_(stateObj) {
+  return Object.keys(stateObj || {}).filter(function (k) { return stateObj[k] === 'READY'; }).length;
+}
+
+/** Kasir/server: marks a round as delivered ("Sudah diantar"). Only when the kitchen has marked it siap. */
+function apiServeRound(token, orderId, round) {
+  return run_(function () {
+    const user = requirePerm_(token, 'tables.serve');
+    return withLock_(function () {
+      const oid = String(orderId || ''), rd = Number(round) || 0;
+      const rows = readRecentRows_('Kitchen_Tickets', 400).filter(function (r) {
+        return r.Ticket_ID && String(r.Kind || '') === 'ORDER' && String(r.Order_ID || '') === oid && (Number(r.Round) || 0) === rd;
+      });
+      if (!rows.length) throw new Error('Tidak ada pesanan dapur untuk pesanan ' + rd + '.');
+      if (roundState_(rows) !== 'READY') throw new Error('Pesanan ' + rd + ' belum siap di dapur/bar.');
+      rows.forEach(function (r) {
+        const fields = {};
+        if (String(r.Food_Status || '') === 'DONE') fields.Food_Status = 'SERVED';
+        if (String(r.Bar_Status || '') === 'DONE') fields.Bar_Status = 'SERVED';
+        if (Object.keys(fields).length) updateRow_('Kitchen_Tickets', r._row, fields);
+      });
+      audit_(user, 'SERVED', 'Order', oid, { round: rd });
+      return { orderId: oid, round: rd, state: 'SERVED' };
+    });
+  });
+}
+
 /** Open tickets for one station (oldest first) plus the last finished ones. */
 function apiGetKitchen(token, station) {
   return run_(function () {
@@ -89,32 +148,54 @@ function apiGetKitchen(token, station) {
     const yesterday = addDays_(today, -1);
     const all = readRecentRows_('Kitchen_Tickets', 400).map(function (r) { return ticketFromRow_(r, station); })
       .filter(function (t) { return t.id && t.status && t.items.length && t.date >= yesterday; });
-    const open = all.filter(function (t) { return t.status === 'NEW'; });
-    const done = all.filter(function (t) { return t.status === 'DONE' && t.date === today; }).reverse().slice(0, 30);
+    const open = all.filter(function (t) { return t.status === 'NEW' || t.status === 'PROSES'; });
+    const done = all.filter(function (t) { return (t.status === 'DONE' || t.status === 'SERVED') && t.date === today; }).reverse().slice(0, 30);
     const strip = function (t) { delete t.row; return t; };
     return { station: station, serverNow: Date.now(), open: open.map(strip), done: done.map(strip) };
   });
 }
 
-/** How many tickets are waiting for this user's screens (for the top-bar badge). Light: polled every 20 s. */
+/** Numbers for the top-bar badge: tickets waiting for this user's screen, late ones, and rounds ready to deliver. Polled every 20 s. */
 function apiKitchenCount(token) {
   return run_(function () {
-    const user = requirePerm_(token, ['kitchen.food', 'kitchen.bar']);
+    const user = requirePerm_(token, ['kitchen.food', 'kitchen.bar', 'tables.serve']);
     const yesterday = addDays_(todayStr_(), -1);
     const nowMs = Date.now();
     const rows = readRecentRows_('Kitchen_Tickets', 400).filter(function (r) {
       return r.Ticket_ID && dateText_(r.Date) >= yesterday;
     });
-    const out = { FOOD: null, BAR: null, late: 0 };
+    const out = { FOOD: null, BAR: null, late: 0, READY: null };
     if (hasPerm_(user.role, 'kitchen.food')) out.FOOD = 0;
     if (hasPerm_(user.role, 'kitchen.bar')) out.BAR = 0;
+    if (hasPerm_(user.role, 'tables.serve')) {
+      const km = kitchenStateMap_();
+      out.READY = openOrders_().reduce(function (s, o) { return s + countReady_(km[o.id]); }, 0);
+    }
+    const isWaiting = function (st) { return st === 'NEW' || st === 'PROSES'; };
     rows.forEach(function (r) {
-      const waiting = function (col) { return String(r[col] || '') === 'NEW'; };
+      const waiting = function (col) { return isWaiting(String(r[col] || '')); };
       const old = Number(r.Created_Ms) && (nowMs - Number(r.Created_Ms)) >= 15 * 60000;
       if (out.FOOD !== null && waiting('Food_Status')) { out.FOOD++; if (old) out.late++; }
       if (out.BAR !== null && waiting('Bar_Status')) { out.BAR++; if (old) out.late++; }
     });
     return out;
+  });
+}
+
+/** Kitchen/bar starts a ticket: NEW -> PROSES ("sedang dibuat"). */
+function apiKitchenStart(token, ticketId, station) {
+  return run_(function () {
+    station = String(station || '').toUpperCase();
+    const user = requirePerm_(token, stationPerm_(station));
+    return withLock_(function () {
+      const rows = rowsWhere_('Kitchen_Tickets', 'Ticket_ID', String(ticketId || ''));
+      if (!rows.length) throw new Error('Tiket tidak ditemukan. Muat ulang layar.');
+      const r = rows[0];
+      const statusCol = station === 'FOOD' ? 'Food_Status' : 'Bar_Status';
+      if (String(r[statusCol] || '') !== 'NEW') throw new Error('Tiket ini sudah dimulai atau sudah selesai.');
+      updateRow_('Kitchen_Tickets', r._row, { [statusCol]: 'PROSES' });
+      return true;
+    });
   });
 }
 

@@ -10,7 +10,7 @@ App.resetHooks.push(function () { Kit.station = null; Kit.data = null; Kit.lastI
 const KitBadge = { timer: null, c: null };
 
 function kitBadgeStart() {
-  if (!(can('kitchen.food') || can('kitchen.bar'))) return;
+  if (!(can('kitchen.food') || can('kitchen.bar') || can('tables.serve'))) return;
   kitBadgeLoad();
   if (!KitBadge.timer) KitBadge.timer = setInterval(function () { if (App.token && !document.hidden) kitBadgeLoad(); }, 20000);
 }
@@ -40,9 +40,10 @@ function kitBadgeRender() {
   const parts = [];
   if (c && c.FOOD !== null) parts.push('Dapur ' + c.FOOD);
   if (c && c.BAR !== null) parts.push('Bar ' + c.BAR);
+  if (c && c.READY !== null && c.READY !== undefined) parts.push('Siap diantar ' + c.READY);
   pill.hidden = !parts.length;
   pill.innerHTML = parts.join(' · ') + (c && c.late ? ' <b class="kit-late">⚠ ' + c.late + '</b>' : '');
-  pill.dataset.go = c && c.FOOD !== null ? 'kitchen' : 'bar_orders';
+  pill.dataset.go = c && c.FOOD !== null ? 'kitchen' : c && c.BAR !== null ? 'bar_orders' : 'tables';
   pill.classList.toggle('late', !!(c && c.late));
 }
 
@@ -59,7 +60,8 @@ function kitShow(station) {
     reload: function () { kitLoad(false); },
     tab: function (el) { Kit.tab = el.dataset.t; kitRender(); },
     done: function (el) { kitDone(el.dataset.id, false); },
-    undo: function (el) { kitDone(el.dataset.id, true); }
+    undo: function (el) { kitDone(el.dataset.id, true); },
+    start: function (el) { kitStart(el.dataset.id); }
   });
   kitLoad(false);
   if (!Kit.timer) {
@@ -116,7 +118,7 @@ function kitCard(t, done) {
   const isVoid = t.kind === 'VOID';
   const head = '<div class="tk-head"><div><span class="tk-table">' + esc(t.table || '-') + '</span>' +
     (t.guest ? '<span class="tk-guest">' + esc(t.guest) + '</span>' : '') + '</div>' +
-    '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ keluar ' + esc(t.doneAt) + (t.serveMin != null ? ' · ' + t.serveMin + ' mnt' : '') : esc(age.text)) + '</span></div>' +
+    '<span class="tk-age ' + (done ? '' : age.cls) + '">' + (done ? '✓ keluar ' + esc(t.doneAt) + (t.serveMin != null ? ' · ' + t.serveMin + ' mnt' : '') + servedTag : esc(age.text)) + '</span></div>' +
     '<div class="tk-meta">' + (isVoid ? '<b>BATAL</b>' : (t.table === 'Takeaway' ? 'Takeaway' : 'Pesanan ' + t.round)) + ' · ' + esc(t.time) +
     (t.by ? ' · ' + esc(t.by) : '') + '</div>';
   const items = t.items.map(function (i) {
@@ -125,10 +127,15 @@ function kitCard(t, done) {
       (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span></div>';
   }).join('');
   const reason = isVoid && t.reason ? '<div class="tk-reason">Alasan: ' + esc(t.reason) + '</div>' : '';
-  const btn = done
-    ? '<button class="btn small" type="button" data-act="undo" data-id="' + esc(t.id) + '">↶ Kembalikan ke antrian</button>'
-    : '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">' + (isVoid ? 'OK, sudah dilihat' : '✓ Selesai') + '</button>';
-  return '<div class="ticket' + (isVoid ? ' void' : '') + (done ? ' done' : '') + '">' + head + '<div class="tk-items">' + items + '</div>' + reason + btn + '</div>';
+  let btn;
+  if (done) btn = '<button class="btn small" type="button" data-act="undo" data-id="' + esc(t.id) + '">↶ Kembalikan ke antrian</button>';
+  else if (isVoid) btn = '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">OK, sudah dilihat</button>';
+  else if (t.status === 'PROSES') btn = '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">✓ Siap diantar</button>';
+  else btn = '<div class="tk-btns"><button class="btn tk-start" type="button" data-act="start" data-id="' + esc(t.id) + '">▶ Mulai dibuat</button>' +
+    '<button class="btn primary tk-done" type="button" data-act="done" data-id="' + esc(t.id) + '">✓ Siap</button></div>';
+  const stateTag = !done && !isVoid && t.status === 'PROSES' ? '<div class="tk-state">Sedang dibuat</div>' : '';
+  const servedTag = done && t.status === 'SERVED' ? ' · sudah diantar' : '';
+  return '<div class="ticket' + (isVoid ? ' void' : '') + (done ? ' done' : '') + '">' + head + stateTag + '<div class="tk-items">' + items + '</div>' + reason + btn + '</div>';
 }
 
 function kitRender() {
@@ -142,6 +149,15 @@ function kitRender() {
   const list = Kit.tab === 'open' ? d.open : d.done;
   $('kitBody').innerHTML = list.length ? list.map(function (t) { return kitCard(t, Kit.tab === 'done'); }).join('')
     : '<div class="empty">' + (Kit.tab === 'open' ? 'Belum ada pesanan. Layar ini memuat ulang sendiri setiap 15 detik.' : 'Belum ada yang selesai hari ini.') + '</div>';
+}
+
+async function kitStart(id) {
+  try {
+    await api('apiKitchenStart', App.token, id, Kit.station);
+    const t = Kit.data.open.filter(function (x) { return x.id === id; })[0];
+    if (t) { t.status = 'PROSES'; kitRender(); }
+    kitLoad(true);
+  } catch (e) { toast(e.message, 'err'); kitLoad(true); }
 }
 
 async function kitDone(id, undo) {

@@ -96,18 +96,21 @@ function getOpenOrder_(orderId) {
 }
 
 /** What the phone needs to show a bill. */
-function publicOrder_(o) {
+function publicOrder_(o, km) {
+  km = km || kitchenStateMap_();
   return { id: o.id, tableId: o.tableId, tableName: o.tableName, pax: o.pax, guestName: o.guestName, status: o.status,
            items: o.items, subtotal: o.subtotal, openedAt: o.openedAt, openedMs: o.openedMs, openedBy: o.openedBy,
-           updatedBy: o.updatedBy, version: o.version, paidCount: o.paidTx.length };
+           updatedBy: o.updatedBy, version: o.version, paidCount: o.paidTx.length,
+           kitchen: km[o.id] || {} };          // round -> NEW | PROSES | READY | SERVED
 }
 
 function floorData_(user) {
   const tables = tablesList_().filter(function (t) { return t.active; });
   const open = {};
+  const km = kitchenStateMap_();
   openOrders_().forEach(function (o) {
     if (!open[o.tableId]) {
-      open[o.tableId] = { orderId: o.id, pax: o.pax, guest: o.guestName, subtotal: o.subtotal,
+      open[o.tableId] = { orderId: o.id, pax: o.pax, guest: o.guestName, subtotal: o.subtotal, ready: countReady_(km[o.id]),
                           items: o.items.reduce(function (s, i) { return s + (Number(i.qty) || 0); }, 0),
                           rounds: o.items.reduce(function (m, i) { return Math.max(m, i.round); }, 0), paidCount: o.paidTx.length,
                           openedMs: o.openedMs, openedBy: o.openedBy, version: o.version, tableName: o.tableName };
