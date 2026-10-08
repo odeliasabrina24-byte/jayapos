@@ -246,12 +246,12 @@ async function kitSendPending(id) {
   kitLoad(true);
 }
 
-/* ----- Layar Siap Diantar (kasir / server): pesanan per meja yang sudah siap atau masih dibuat ----- */
-const Serve = { data: null, tab: 'ready', timer: null, lastKeys: null, loading: false, offset: 0 };
+/* ----- Siap Diantar (kasir / server): hanya yang harus diantar sekarang; "Semua pesanan" untuk melihat sisanya ----- */
+const Serve = { data: null, view: 'ready', timer: null, lastKeys: null, loading: false, offset: 0 };
 const SERVE_STAT = { NEW: 'belum dimulai', PROSES: 'sedang dibuat', PART: 'sebagian siap', DONE: 'siap', SERVED: 'sudah diantar' };
 const SERVE_CLS = { NEW: 'muted', PROSES: 'info', PART: 'info', DONE: 'ready', SERVED: 'good' };
 
-/** "2 siap diantar · 1 belum siap" for one item line. */
+/** Status of one item line, e.g. "2 sudah diantar · 1 siap diantar · 1 belum siap". */
 function serveLineLabel(i) {
   const parts = [];
   if (i.srv) parts.push(i.srv + ' sudah diantar');
@@ -260,17 +260,21 @@ function serveLineLabel(i) {
   return parts.length ? parts.join(' · ') : SERVE_STAT[i.status];
 }
 
+function hhmm(d) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+
 App.resetHooks.push(function () { Serve.data = null; Serve.lastKeys = null; });
 
 Views.serve = function () { serveShow(); };
 
 function serveShow() {
-  Mod.render('<div class="kit-top"><div class="filter-bar" id="serveTabs"></div>' +
-    '<div class="tools-right"><span class="small muted" id="serveStamp"></span><button class="btn small" type="button" data-act="reload">↻</button></div></div>' +
+  Mod.render('<div class="kit-top"><span class="sv-title" id="serveTitle"></span>' +
+    '<div class="tools-right"><button class="btn small" type="button" data-act="toggle" id="serveSwitch"></button>' +
+    '<button class="btn small" type="button" data-act="reload">↻</button></div></div>' +
+    '<div class="small muted" id="serveStamp"></div>' +
     '<div class="kds" id="serveBody"><div class="empty">Memuat…</div></div>');
   Mod.on({
     reload: function () { serveLoad(false); },
-    tab: function (el) { Serve.tab = el.dataset.t; serveRender(); },
+    toggle: function () { Serve.view = Serve.view === 'ready' ? 'all' : 'ready'; serveRender(); },
     serve: function (el) { serveDelivered(el.dataset.order, el.dataset.round, el); }
   });
   serveLoad(false);
@@ -305,46 +309,68 @@ async function serveLoad(silent) {
 function serveRender() {
   const d = Serve.data;
   if (!d || !$('serveBody')) return;
-  $('serveTabs').innerHTML = '<button class="chip' + (Serve.tab === 'ready' ? ' active' : '') + '" type="button" data-act="tab" data-t="ready">Siap diantar (' + d.ready.length + ')</button>' +
-    '<button class="chip' + (Serve.tab === 'cooking' ? ' active' : '') + '" type="button" data-act="tab" data-t="cooking">Sedang dibuat (' + d.cooking.length + ')</button>';
-  const now = new Date();
-  $('serveStamp').textContent = 'diperbarui ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-  const ready = Serve.tab === 'ready';
-  const list = ready ? d.ready : d.cooking;
-  $('serveBody').innerHTML = list.length ? list.map(serveCard).join('')
-    : '<div class="empty">' + (ready ? 'Belum ada pesanan yang siap diantar. Layar ini memuat ulang sendiri setiap 15 detik.' : 'Tidak ada pesanan yang sedang dibuat.') + '</div>';
+  $('serveStamp').textContent = 'diperbarui ' + hhmm(new Date());
+  if (Serve.view === 'ready') {
+    const cards = d.ready.map(serveReadyCard).filter(Boolean);
+    $('serveTitle').textContent = 'Siap diantar' + (cards.length ? ' · ' + cards.length + ' pesanan' : '');
+    $('serveSwitch').textContent = 'Semua pesanan ›';
+    $('serveBody').innerHTML = cards.length ? cards.join('')
+      : '<div class="empty">Belum ada yang siap diantar. Layar ini memuat ulang sendiri setiap 15 detik.</div>';
+  } else {
+    $('serveTitle').textContent = 'Semua pesanan';
+    $('serveSwitch').textContent = '‹ Siap diantar';
+    $('serveBody').innerHTML = d.all.length ? serveAllHtml(d.all)
+      : '<div class="empty">Belum ada pesanan meja yang terbuka.</div>';
+  }
 }
 
-/** One table round: table, guest, round, status per station, every item, and the delivered button. */
-function serveCard(r) {
-  const ready = r.state === 'READY';
-  const since = ready ? r.readyMs : r.createdMs;
-  const m = Math.max(0, Math.floor((Date.now() - Serve.offset - since) / 60000));
-  const age = ready ? 'siap ' + (m < 1 ? 'baru saja' : m + ' mnt lalu') : (m < 1 ? 'baru masuk' : 'menunggu ' + m + ' mnt');
-  const cls = m >= 25 ? 'late' : m >= 15 ? 'slow' : '';
-  const sts = r.stations;
-  const head = '<div class="tk-head"><div><span class="tk-table">' + esc(r.table || '-') + '</span>' +
-    (r.guest ? '<span class="tk-guest">' + esc(r.guest) + '</span>' : '') + '</div>' +
-    '<span class="tk-age ' + (ready && r.readyStamped ? '' : cls) + '">' + esc(ready && !r.readyStamped ? 'sebagian siap · masuk ' + m + ' mnt lalu' : age) + '</span></div>';
-  const meta = '<div class="tk-meta"><b>Pesanan ' + r.round + '</b> · masuk ' + esc(r.time) + (r.by ? ' · ' + esc(r.by) : '') + '</div>';
-  const stLine = '<div class="round-status serve-stations">' + Object.keys(sts).map(function (k) {
-    return '<span class="rs-line"><span class="pill ' + SERVE_CLS[sts[k]] + '">' + (k === 'FOOD' ? 'Dapur' : 'Bar') + '</span>' + SERVE_STAT[sts[k]] + '</span>';
-  }).join('') + '</div>';
-  const items = r.lines.map(function (i) {
-    return '<div class="tk-item serve-item' + (i.status === 'SERVED' ? ' served' : '') + '"><span class="tk-qty">' + i.qty + '×</span><span><b>' + esc(i.name) + '</b>' +
-      '<span><span class="pill ' + SERVE_CLS[i.status] + ' serve-st">' + (i.st === 'FOOD' ? 'Dapur' : 'Bar') + ' · ' + esc(serveLineLabel(i)) + '</span></span>' +
-      (i.note ? '<span class="tk-note">' + esc(i.note) + '</span>' : '') + '</span></div>';
+/** Satu kartu = satu pesanan (ronde) meja yang siap diantar. Hanya porsi yang harus diantar sekarang. */
+function serveReadyCard(r) {
+  const go = r.lines.filter(function (l) { return l.rdy > l.srv; });
+  if (!go.length) return '';
+  const portions = go.reduce(function (s, l) { return s + (l.rdy - l.srv); }, 0);
+  const waiting = r.lines.filter(function (l) { return l.rdy < l.qty; });
+  const m = Math.max(0, Math.floor((Date.now() - Serve.offset - (r.readyStamped ? r.readyMs : r.createdMs)) / 60000));
+  const lines = go.map(function (l) {
+    return '<div class="sv-line"><span class="sv-qty">' + (l.rdy - l.srv) + '×</span><span class="sv-name">' + esc(l.name) + '</span>' +
+      (l.note ? '<span class="tk-note">' + esc(l.note) + '</span>' : '') + '</div>';
   }).join('');
-  let btn = '';
-  if (ready) {
-    const left = Object.keys(sts).filter(function (k) { return sts[k] === 'NEW' || sts[k] === 'PROSES' || sts[k] === 'PART'; });
-    btn = '<button class="btn primary tk-done" type="button" data-act="serve" data-order="' + esc(r.orderId) + '" data-round="' + r.round + '">✓ Sudah diantar' +
-      (left.length ? ' (yang siap)' : '') + '</button>' +
-      (left.length ? '<div class="small muted">' + left.map(function (k) {
-        return (k === 'FOOD' ? 'Dapur' : 'Bar') + ' ' + (sts[k] === 'PART' ? 'baru sebagian siap' : 'belum siap');
-      }).join(' · ') + '</div>' : '');
-  }
-  return '<div class="ticket">' + head + meta + stLine + '<div class="tk-items">' + items + '</div>' + btn + '</div>';
+  const left = waiting.length ? '<div class="small muted sv-wait">Masih dibuat: ' +
+    waiting.map(function (l) { return (l.qty - l.rdy) + '× ' + esc(l.name); }).join(', ') + '</div>' : '';
+  return '<div class="ticket">' +
+    '<div class="tk-head"><div><span class="tk-table">' + esc(r.table || '-') + '</span>' +
+    (r.guest ? '<span class="tk-guest">' + esc(r.guest) + '</span>' : '') + '</div>' +
+    '<span class="tk-age">masuk ' + esc(r.time) + '</span></div>' +
+    '<div class="tk-meta">Pesanan ' + r.round + ' · ' + (r.readyStamped ? 'siap ' + esc(r.readyAt) + ' (' + m + ' mnt lalu)' : 'sebagian siap · ' + m + ' mnt lalu') + '</div>' +
+    '<div class="tk-items">' + lines + '</div>' + left +
+    '<button class="btn primary tk-done" type="button" data-act="serve" data-order="' + esc(r.orderId) + '" data-round="' + r.round + '">✓ Sudah diantar (' + portions + ' porsi)</button>' +
+    '</div>';
+}
+
+/** Semua pesanan: per meja, per ronde, status dan waktu tiap item. */
+function serveAllHtml(rounds) {
+  const byOrder = {}, order = [];
+  rounds.forEach(function (r) {
+    if (!byOrder[r.orderId]) { byOrder[r.orderId] = { table: r.table, guest: r.guest, rounds: [] }; order.push(r.orderId); }
+    byOrder[r.orderId].rounds.push(r);
+  });
+  return order.map(function (oid) {
+    const o = byOrder[oid];
+    const rs = o.rounds.map(function (r) {
+      return '<div class="sv-round"><div class="sv-rhead"><b>Pesanan ' + r.round + '</b> · masuk ' + esc(r.time) +
+        (r.readyStamped ? ' · siap ' + esc(r.readyAt) : '') + '</div>' + r.lines.map(serveAllLine).join('') + '</div>';
+    }).join('');
+    return '<div class="ticket sv-table"><div class="tk-head"><div><span class="tk-table">' + esc(o.table || '-') + '</span>' +
+      (o.guest ? '<span class="tk-guest">' + esc(o.guest) + '</span>' : '') + '</div></div>' + rs + '</div>';
+  }).join('');
+}
+
+function serveAllLine(l) {
+  const label = serveLineLabel(l) + (l.servedAt && l.srv ? ' · terakhir diantar ' + l.servedAt : '');
+  return '<div class="sv-line' + (l.status === 'SERVED' ? ' served' : '') + '"><span class="sv-qty">' + l.qty + '×</span>' +
+    '<span class="sv-name">' + esc(l.name) + '</span>' +
+    '<span class="pill ' + SERVE_CLS[l.status] + ' serve-st">' + (l.st === 'FOOD' ? 'Dapur' : 'Bar') + ' · ' + esc(label) + '</span>' +
+    (l.note ? '<span class="tk-note">' + esc(l.note) + '</span>' : '') + '</div>';
 }
 
 async function serveDelivered(orderId, round, el) {

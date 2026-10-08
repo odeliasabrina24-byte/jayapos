@@ -221,7 +221,7 @@ function apiServeRound(token, orderId, round) {
         let changed = false;
         data.items.forEach(function (i) {
           const n = unitsToServe_(i);
-          if (n > 0) { i.srv = (Number(i.srv) || 0) + n; changed = true; }
+          if (n > 0) { i.srv = (Number(i.srv) || 0) + n; i.srvAt = String(nowStamp_()).slice(11, 16); changed = true; }
         });
         if (changed) saveTicketItems_(r, data, '');
       });
@@ -245,14 +245,14 @@ function apiGetServe(token) {
       const key = String(r.Order_ID) + '|' + (Number(r.Round) || 0);
       (groups[key] = groups[key] || []).push(r);
     });
-    const ready = [], cooking = [];
+    const ready = [], cooking = [], all = [];
     Object.keys(groups).forEach(function (key) {
       const rs = groups[key];
       const o = orders[String(rs[0].Order_ID)];
       const states = stationStates_(rs);
       const stations = Object.keys(states);
       if (!stations.length) return;
-      if (!stations.some(function (st) { return states[st] !== 'SERVED'; })) return;   // everything delivered
+      const hasLeft = stations.some(function (st) { return states[st] !== 'SERVED'; });
       const isReady = stations.some(function (st) { return states[st] === 'DONE' || states[st] === 'PART'; });
       const lines = [];
       let readyMs = 0, readyAt = '';
@@ -276,7 +276,7 @@ function apiGetServe(token) {
           else if (rd >= q) status = 'DONE';
           else if (rd > 0) status = 'PART';
           else status = colVal[i.st] && colVal[i.st] !== 'NEW' ? 'PROSES' : 'NEW';
-          lines.push({ qty: q, name: i.name, note: i.note || '', st: i.st, status: status, rdy: rd, srv: sv });
+          lines.push({ qty: q, name: i.name, note: i.note || '', st: i.st, status: status, rdy: rd, srv: sv, servedAt: i.srvAt || '' });
         });
       });
       const createdMs = Math.min.apply(null, rs.map(function (r) { return Number(r.Created_Ms) || 0; }).filter(Boolean));
@@ -286,13 +286,16 @@ function apiGetServe(token) {
         orderId: o.id, round: Number(rs[0].Round) || 0, table: o.tableName, guest: o.guestName || '', pax: o.pax || 0,
         time: cellText_(rs[0].Created_At).slice(11, 16), createdMs: createdMs, by: String(rs[0].Created_By || ''),
         stations: states, lines: lines, readyAt: readyAt, readyStamped: readyStamped,
-        readyMs: isReady ? readyMs : 0, state: isReady ? 'READY' : 'COOKING'
+        readyMs: isReady ? readyMs : 0, state: !hasLeft ? 'SERVED' : isReady ? 'READY' : 'COOKING'
       };
+      all.push(card);
+      if (!hasLeft) return;                           // fully delivered: only in the all-orders view
       (isReady ? ready : cooking).push(card);
     });
     ready.sort(function (a, b) { return a.readyMs - b.readyMs; });
     cooking.sort(function (a, b) { return a.createdMs - b.createdMs; });
-    return { serverNow: Date.now(), ready: ready, cooking: cooking };
+    all.sort(function (a, b) { return a.createdMs - b.createdMs; });
+    return { serverNow: Date.now(), ready: ready, cooking: cooking, all: all };
   });
 }
 
