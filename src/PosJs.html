@@ -205,6 +205,33 @@ function posPayLines() {
   return out;
 }
 
+/** Takeaway items to charge now: all of them, or only the picks of "Split per item". */
+function posTakeawayItems() {
+  const item = function (l, q, disc) {
+    return { lid: l.lid, productId: l.id, qty: q, disc: disc || null, note: l.note || '', mods: (l.mods || []).map(function (m) { return m.id; }) };
+  };
+  if (!Pos.payLines) return Pos.cart.map(function (l) { return item(l, l.qty, l.disc); });
+  return posPayLines().map(function (pl) { return item(lineByLid(pl.lid), pl.qty, pl.disc); });
+}
+
+/** Takeaway split done: the paid part leaves the cart, the rest stays for the next payment. */
+function posTakeawayRest(paid) {
+  Pos.cart = Pos.cart.map(function (l) {
+    const q = Math.min(l.qty, paid[l.lid] || 0);
+    if (!q) return l;
+    let disc = l.disc;
+    if (l.disc && l.disc.type === 'AMT') {
+      const left = l.disc.value - Math.round(l.disc.value * q / l.qty);
+      disc = left > 0 ? { type: 'AMT', value: left } : null;
+    }
+    return Object.assign({}, l, { qty: l.qty - q, disc: disc });
+  }).filter(function (l) { return l.qty > 0; });
+  Pos.payLines = null; Pos.split = null; Pos.ref = null; Pos.cash = 0; Pos.payment = 'CASH';
+  Pos.billDisc = { type: 'AMT', value: 0 };
+  posSyncInputs();
+  posRenderAll();
+}
+
 function posMethods() {
   return Pos.split ? Pos.split.parts.map(function (p) { return p.method; }) : [Pos.payment];
 }
@@ -733,13 +760,13 @@ function posReadPartInput(input) {
 
 /* ---------- Split bill ---------- */
 function posSplitMenu() {
-  if (!Pos.ctx || !Pos.canPay) return;
+  if (!Pos.canPay) return;
   const html = '<div class="action-list">' +
     '<button class="btn" type="button" data-a="items">Per item<span>Pilih item yang dibayar sekarang. Sisanya tetap di meja.</span></button>' +
     '<button class="btn" type="button" data-a="equal">Bagi rata<span>Total dibagi sama rata, tiap orang bisa beda cara bayar.</span></button>' +
     (Pos.payLines || Pos.split ? '<button class="btn" type="button" data-a="off">Batalkan split<span>Bayar semua sekaligus</span></button>' : '') + '</div>';
   openCustom({
-    title: 'Split bill ' + Pos.ctx.tableName, html: html, readOnly: true,
+    title: Pos.ctx ? 'Split bill ' + Pos.ctx.tableName : 'Split pesanan', html: html, readOnly: true,
     onOpen: function (body, close) {
       body.onclick = function (e) {
         const b = e.target.closest('[data-a]');
@@ -757,9 +784,11 @@ function posSplitMenu() {
 }
 
 function posSplitItems() {
-  if (!Pos.ctx) return;
-  if (posIsDirty()) return posError('Simpan bill dulu (SIMPAN KE MEJA), baru split per item.');
-  const lines = Pos.cart.filter(function (l) { return l.round && l.qty > 0; });
+  if (Pos.ctx && posIsDirty()) return posError('Simpan bill dulu (SIMPAN KE MEJA), baru split per item.');
+  // Bill meja: only the items already sent to the kitchen (they have a round). Takeaway: every item in the cart.
+  const lines = Pos.cart.filter(function (l) { return (!Pos.ctx || l.round) && l.qty > 0; });
+  if (!lines.length) return posError('Belum ada item untuk dibagi.');
+  const where = Pos.ctx ? 'bill ' + Pos.ctx.tableName : 'pesanan ini';
   const pick = {};
   lines.forEach(function (l) { pick[l.lid] = Pos.payLines ? (Pos.payLines[l.lid] || 0) : 0; });
   const rowHtml = function (l) {
@@ -776,7 +805,7 @@ function posSplitItems() {
   };
   openCustom({
     title: 'Split per item', submitLabel: 'Bayar item terpilih',
-    html: '<p class="small muted">Pilih berapa dari setiap item yang dibayar sekarang. Item lain tetap di bill ' + esc(Pos.ctx.tableName) + '.</p>' +
+    html: '<p class="small muted">Pilih berapa dari setiap item yang dibayar sekarang. Item lain tetap di ' + esc(where) + '.</p>' +
       '<div class="pick-list">' + lines.map(rowHtml).join('') + '</div><div class="list-summary" id="pickSum"></div>',
     onOpen: function (body) {
       paint();
@@ -1183,16 +1212,15 @@ async function posComplete() {
   const payments = Pos.split
     ? t.parts.map(function (p, i) { return { method: p.method, amountPaid: p.method === 'CASH' ? Pos.split.parts[i].cash : p.due }; })
     : [{ method: Pos.payment, amountPaid: Pos.payment === 'CASH' ? Pos.cash : t.grand }];
-  const payLines = Pos.payLines ? Object.keys(Pos.payLines).map(function (k) { return { lid: k, qty: Pos.payLines[k] }; }) : null;
+  const payLines = Pos.ctx && Pos.payLines ? Object.keys(Pos.payLines).map(function (k) { return { lid: k, qty: Pos.payLines[k] }; }) : null;
+  const takeawayPaid = !Pos.ctx && Pos.payLines ? Pos.payLines : null;   // takeaway split: which lines leave the cart
   Pos.busy = true;
   posRenderCart();
   showLoading(true, 'Menyimpan pesanan…');
   try {
     const receipt = await api('apiCompleteOrder', App.token, {
       clientRef: Pos.ref,
-      items: Pos.ctx ? [] : Pos.cart.map(function (l) {
-        return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '', mods: (l.mods || []).map(function (m) { return m.id; }) };
-      }),
+      items: Pos.ctx ? [] : posTakeawayItems(),
       billDiscount: Pos.billDisc.value ? Pos.billDisc : null,
       applyService: Pos.applyService,
       applyTax: Pos.applyTax,
@@ -1216,6 +1244,9 @@ async function posComplete() {
       posLeaveTable();          // back to the takeaway order that was waiting (if any)
       $('cartPanel').classList.remove('open');
       posRenderAll();
+    } else if (takeawayPaid) {
+      posTakeawayRest(takeawayPaid);
+      toast('Sebagian dibayar. Sisa item masih di pesanan ini.', 'warn');
     } else {
       posResetOrder();
     }
@@ -1309,8 +1340,8 @@ function posBind() {
     else if (a === 'equal-off') { Pos.split = null; posAfterChange(); }
   });
   $('equalBtn').addEventListener('click', function () {
-    // Bill meja: always offer "Per item" + "Bagi rata" (takeaway has no table, so only bagi rata)
-    if (Pos.ctx) posSplitMenu(); else posSplitEqual();
+    // "Per item" + "Bagi rata" for both bill meja and takeaway
+    if (Pos.canPay) posSplitMenu(); else posSplitEqual();
   });
   $('splitParts').addEventListener('click', function (e) {
     const row = e.target.closest('.part');
