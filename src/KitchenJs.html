@@ -317,6 +317,9 @@ App.resetHooks.push(function () { Serve.data = null; Serve.lastKeys = null; });
 Views.serve = function () { serveShow(); };
 
 function serveShow() {
+  // Every time the screen opens (e.g. from Beranda) start from the list of orders still to deliver,
+  // not from the table that was open last time
+  Serve.view = 'ready'; Serve.focus = null;
   Mod.render('<div class="kit-top"><button class="btn small" type="button" data-act="home">‹ Beranda</button>' +
     '<span class="sv-title" id="serveTitle"></span>' +
     '<div class="tools-right"><button class="btn small" type="button" data-act="toggle" id="serveSwitch"></button>' +
