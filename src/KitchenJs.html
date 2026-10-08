@@ -399,12 +399,29 @@ function serveAllHtml(rounds) {
   }).join('');
 }
 
+/**
+ * One item in the table view. Two things only:
+ *  - what must still go out now (bold), or "semua sudah diantar"
+ *  - every delivery with its own time, e.g. "✓ 2 diantar 17:30 · ✓ 2 diantar 17:40"
+ */
 function serveAllLine(l) {
-  const label = serveLineLabel(l) + (l.servedAt && l.srv ? ' · terakhir diantar ' + l.servedAt : '');
-  return '<div class="sv-line' + (l.status === 'SERVED' ? ' served' : '') + '"><span class="sv-qty">' + l.qty + '×</span>' +
-    '<span class="sv-name">' + esc(l.name) + '</span>' +
-    '<span class="pill ' + SERVE_CLS[l.status] + ' serve-st">' + (l.st === 'FOOD' ? 'Dapur' : 'Bar') + ' · ' + esc(label) + '</span>' +
-    (l.note ? '<span class="tk-note">' + esc(l.note) + '</span>' : '') + '</div>';
+  const go = l.rdy - l.srv, cooking = l.qty - l.rdy;
+  let now;
+  if (l.srv >= l.qty) now = '<span class="sv-ok">✓ semua sudah diantar</span>';
+  else {
+    const parts = [];
+    if (go > 0) parts.push('<b class="sv-go">Antar ' + go + ' sekarang</b>');
+    if (cooking > 0) parts.push('<span class="sv-wait-n">' + cooking + ' masih dibuat</span>');
+    now = parts.join(' · ') || '<span class="muted">' + SERVE_STAT[l.status] + '</span>';
+  }
+  const log = (l.serves || []).filter(function (s) { return s.n > 0; })
+    .map(function (s) { return '<span class="sv-chip">✓ ' + s.n + ' diantar ' + esc(s.at || '-') + '</span>'; }).join('');
+  return '<div class="sv-line' + (l.status === 'SERVED' ? ' served' : '') + '">' +
+    '<div class="sv-main"><span class="sv-qty">' + l.qty + '×</span><span class="sv-name">' + esc(l.name) + '</span>' +
+    '<span class="sv-station">' + (l.st === 'FOOD' ? 'Dapur' : 'Bar') + '</span></div>' +
+    '<div class="sv-now">' + now + '</div>' +
+    (log ? '<div class="sv-log">' + log + '</div>' : '') +
+    (l.note ? '<div class="tk-note">' + esc(l.note) + '</div>' : '') + '</div>';
 }
 
 async function serveDelivered(orderId, round, el) {

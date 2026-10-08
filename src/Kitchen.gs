@@ -205,6 +205,12 @@ function ticketFromRow_(r, station) {
 }
 
 /** Kasir/server: delivers everything that is ready on a round ("Sudah diantar"). Partial rounds deliver the ready part. */
+/** Each delivery of an item as {n, at}. Items saved before v3.4.2 have only the last time. */
+function serveLog_(i) {
+  if (Array.isArray(i.srvLog) && i.srvLog.length) return i.srvLog;
+  return Number(i.srv) > 0 ? [{ n: Number(i.srv), at: i.srvAt || '' }] : [];
+}
+
 function apiServeRound(token, orderId, round) {
   return run_(function () {
     const user = requirePerm_(token, 'tables.serve');
@@ -221,7 +227,13 @@ function apiServeRound(token, orderId, round) {
         let changed = false;
         data.items.forEach(function (i) {
           const n = unitsToServe_(i);
-          if (n > 0) { i.srv = (Number(i.srv) || 0) + n; i.srvAt = String(nowStamp_()).slice(11, 16); changed = true; }
+          if (n > 0) {
+            const at = String(nowStamp_()).slice(11, 16);
+            i.srv = (Number(i.srv) || 0) + n;
+            i.srvAt = at;
+            i.srvLog = (Array.isArray(i.srvLog) ? i.srvLog : []).concat([{ n: n, at: at }]);   // every delivery keeps its own time
+            changed = true;
+          }
         });
         if (changed) saveTicketItems_(r, data, '');
       });
@@ -276,7 +288,8 @@ function apiGetServe(token) {
           else if (rd >= q) status = 'DONE';
           else if (rd > 0) status = 'PART';
           else status = colVal[i.st] && colVal[i.st] !== 'NEW' ? 'PROSES' : 'NEW';
-          lines.push({ qty: q, name: i.name, note: i.note || '', st: i.st, status: status, rdy: rd, srv: sv, servedAt: i.srvAt || '' });
+          lines.push({ qty: q, name: i.name, note: i.note || '', st: i.st, status: status, rdy: rd, srv: sv, servedAt: i.srvAt || '',
+            serves: serveLog_(i) });
         });
       });
       const createdMs = Math.min.apply(null, rs.map(function (r) { return Number(r.Created_Ms) || 0; }).filter(Boolean));
