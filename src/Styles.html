@@ -542,6 +542,8 @@ body.has-tabs .toast { bottom: 150px; }
 @media (prefers-reduced-motion: reduce) { .home-big.live.on.green { animation: none; } }
 .hb-title { font-size: 22px; font-weight: 800; }
 .hb-sub { font-size: 14px; opacity: .85; margin-top: 2px; }
+/* live tiles: title and number start at the same height, whatever the extra lines below */
+.home-big.live { justify-content: flex-start; }
 .home-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .home-tile { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 12px; text-align: left; display: flex; flex-direction: column;
   gap: 2px; min-height: 92px; color: var(--ink); }
