@@ -156,7 +156,8 @@ async function soLoad() {
 
 function soRow(p) {
   return '<label class="so-row' + (p.soldOut ? ' is-out' : '') + '"><span class="so-main"><span class="so-name">' + esc(p.name) + '</span>' +
-    (p.soldOut ? '<span class="so-sub">Habis sejak ' + esc(stampLabel(p.at)) + (p.by ? ' · ' + esc(p.by) : '') + '</span>' : '') + '</span>' +
+    (p.soldOut ? '<span class="so-sub">Habis sejak ' + esc(stampLabel(p.at)) + (p.by ? ' · ' + esc(p.by) : '') + '</span>' +
+      (p.reason ? '<span class="so-sub so-reason">Alasan: ' + esc(p.reason) + '</span>' : '') : '') + '</span>' +
     '<span class="so-state">' + (p.soldOut ? 'HABIS' : 'Tersedia') + '</span>' +
     '<input type="checkbox" class="switch" data-so="' + esc(p.id) + '"' + (p.soldOut ? '' : ' checked') + '></label>';
 }
@@ -186,23 +187,45 @@ function soRenderAll() {
   $('soAll').innerHTML = html || '<div class="empty">Menu tidak ditemukan.</div>';
 }
 
-async function soToggle(input) {
+const SO_REASONS = ['Bahan habis', 'Stok sisa sedikit', 'Alat / mesin rusak', 'Tidak dibuat hari ini', 'Lainnya'];
+
+/** Switching a menu off asks why first; switching it back on needs no reason. */
+function soToggle(input) {
   const id = input.dataset.so;
-  const out = !input.checked;
   const p = SoldOut.data.products.filter(function (x) { return x.id === id; })[0];
-  input.disabled = true;
-  try {
-    const r = await api('apiSetSoldOut', App.token, id, out);
-    if (p) { p.soldOut = r.soldOut; p.by = r.by; p.at = r.at; }
-    if (typeof Pos !== 'undefined' && Pos.byId && Pos.byId[id]) Pos.byId[id].soldOut = r.soldOut;
-    if (Home.data) Home.data.soldOut = SoldOut.data.products.filter(function (x) { return x.soldOut; }).length;
-    toast((p ? p.name : 'Menu') + (r.soldOut ? ' ditandai HABIS' : ' tersedia lagi'), r.soldOut ? 'warn' : '');
-    soRender();
-  } catch (e) {
-    input.checked = !input.checked;
+  if (!input.checked) {                    // switch turned OFF: ask the reason; it stays "tersedia" until saved
+    input.checked = true;
+    openForm({
+      title: 'Alasan habis: ' + (p ? p.name : ''),
+      submitLabel: 'Tandai habis',
+      fields: [
+        { name: 'reason', label: 'Kenapa habis?', type: 'select', value: SO_REASONS[0], options: SO_REASONS },
+        { name: 'note', label: 'Catatan (opsional)', value: '' }
+      ],
+      onSubmit: async function (v) {
+        if (v.reason === 'Lainnya' && !v.note) throw new Error('Tulis alasannya di catatan.');
+        await soSave(id, true, v.reason + (v.note ? ' – ' + v.note : ''));
+      }
+    });
+    return;
+  }
+  input.disabled = true;                   // switched back ON: no reason needed
+  soSave(id, false, '').catch(function (e) {
+    input.checked = false;
     input.disabled = false;
     toast(e.message, 'err');
-  }
+  });
+}
+
+/** Saves sold-out state; errors go back to the caller (the form shows them). */
+async function soSave(id, soldOut, why) {
+  const p = SoldOut.data.products.filter(function (x) { return x.id === id; })[0];
+  const r = await api('apiSetSoldOut', App.token, id, soldOut, why);
+  if (p) { p.soldOut = r.soldOut; p.by = r.by; p.at = r.at; p.reason = r.reason; }
+  if (typeof Pos !== 'undefined' && Pos.byId && Pos.byId[id]) Pos.byId[id].soldOut = r.soldOut;
+  if (Home.data) Home.data.soldOut = SoldOut.data.products.filter(function (x) { return x.soldOut; }).length;
+  toast((p ? p.name : 'Menu') + (r.soldOut ? ' ditandai HABIS' : ' tersedia lagi'), r.soldOut ? 'warn' : '');
+  soRender();
 }
 
 (function homeBind() {

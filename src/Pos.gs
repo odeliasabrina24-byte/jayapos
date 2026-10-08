@@ -53,7 +53,8 @@ function getActiveProducts_() {
       recipeGroup: String(r.Recipe_Group || '').trim().toUpperCase() || 'NONE',
       image: normalizeImageUrl_(r.Image_URL),
       row: r._row,
-      soldOut: isTrue_(r.Sold_Out), soldOutBy: String(r.Sold_Out_By || ''), soldOutAt: cellText_(r.Sold_Out_At)
+      soldOut: isTrue_(r.Sold_Out), soldOutBy: String(r.Sold_Out_By || ''), soldOutAt: cellText_(r.Sold_Out_At),
+      soldOutReason: String(r.Sold_Out_Reason || '')
     };
   }).filter(function (p) { return p.active && p.id && p.name && isFinite(p.price) && p.price >= 0; });
 }
@@ -660,7 +661,8 @@ function apiGetSoldOut(token) {
     requirePerm_(token, 'menu.soldout');
     const order = categoryOrder_();
     const list = getActiveProducts_().map(function (p) {
-      return { id: p.id, name: p.name, category: p.category, soldOut: p.soldOut, by: p.soldOutBy, at: p.soldOutAt.slice(0, 16) };
+      return { id: p.id, name: p.name, category: p.category, soldOut: p.soldOut, by: p.soldOutBy, at: p.soldOutAt.slice(0, 16),
+               reason: p.soldOutReason };
     });
     const cats = [];
     list.forEach(function (p) { if (cats.indexOf(p.category) < 0) cats.push(p.category); });
@@ -672,19 +674,24 @@ function apiGetSoldOut(token) {
   });
 }
 
-/** Marks a product sold out (soldOut = true) or available again. It stays sold out until someone switches it back. */
-function apiSetSoldOut(token, productId, soldOut) {
+/** Marks a product sold out (soldOut = true, with a reason) or available again. It stays sold out until someone switches it back. */
+function apiSetSoldOut(token, productId, soldOut, reason) {
   return run_(function () {
     const user = requirePerm_(token, 'menu.soldout');
     return withLock_(function () {
       const p = getActiveProducts_().filter(function (x) { return x.id === String(productId || ''); })[0];
       if (!p) throw new Error('Produk tidak ditemukan. Muat ulang.');
       const on = soldOut === true;
+      const why = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (on && !p.soldOut && why.length < 3) throw new Error('Pilih atau tulis alasan kenapa menu ini habis (minimal 3 huruf).');
       if (p.soldOut !== on) {
-        updateRow_('Products', p.row, { Sold_Out: on, Sold_Out_By: on ? user.name : '', Sold_Out_At: on ? nowStamp_() : '' });
-        audit_(user, on ? 'SOLD_OUT' : 'SOLD_OUT_CLEAR', 'Product', p.id, { name: p.name });
+        updateRow_('Products', p.row, { Sold_Out: on, Sold_Out_By: on ? user.name : '', Sold_Out_At: on ? nowStamp_() : '',
+                                        Sold_Out_Reason: on ? why : '' });
+        audit_(user, on ? 'SOLD_OUT' : 'SOLD_OUT_CLEAR', 'Product', p.id, on ? { name: p.name, reason: why } : { name: p.name });
       }
-      return { id: p.id, soldOut: on, by: on ? user.name : '', at: on ? nowStamp_().slice(0, 16) : '' };
+      const shown = on ? (p.soldOut ? p.soldOutReason : why) : '';
+      return { id: p.id, soldOut: on, by: on ? (p.soldOut ? p.soldOutBy : user.name) : '',
+               at: on ? (p.soldOut ? p.soldOutAt : nowStamp_()).slice(0, 16) : '', reason: shown };
     });
   });
 }

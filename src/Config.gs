@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.18';
+const APP_VERSION = '3.4.19';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -240,8 +240,8 @@ const SCHEMA = {
   },
   Products: {
     headers: ['Product_ID', 'Product_Name', 'Category', 'Selling_Price', 'Cost', 'Active', 'Recipe_Group', 'Updated_At',
-              'Image_URL', 'Sold_Out', 'Sold_Out_By', 'Sold_Out_At'],
-    text: ['Product_ID', 'Product_Name', 'Category', 'Recipe_Group', 'Updated_At', 'Image_URL', 'Sold_Out_By', 'Sold_Out_At'],
+              'Image_URL', 'Sold_Out', 'Sold_Out_By', 'Sold_Out_At', 'Sold_Out_Reason'],
+    text: ['Product_ID', 'Product_Name', 'Category', 'Recipe_Group', 'Updated_At', 'Image_URL', 'Sold_Out_By', 'Sold_Out_At', 'Sold_Out_Reason'],
     money: ['Selling_Price', 'Cost'],
     lists: { Active: ['TRUE', 'FALSE'], Recipe_Group: RECIPE_GROUPS, Sold_Out: ['TRUE', 'FALSE'] }
   },
