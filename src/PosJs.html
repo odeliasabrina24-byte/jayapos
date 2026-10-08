@@ -609,7 +609,7 @@ function posNote(lid) {
     }).join('') + '</div>' +
     '<label class="field"><span>Catatan</span><textarea id="noteText" rows="2" maxlength="100" placeholder="contoh: pedas banget, es batu dipisah">' + esc(l.note) + '</textarea></label>' +
     (l.qty > 1 ? '<label class="field"><span>Untuk berapa porsi?</span><input id="noteQty" type="number" inputmode="numeric" min="1" max="' + l.qty + '" value="' + l.qty + '">' +
-      '<span class="help">Isi lebih kecil dari ' + l.qty + ' kalau catatannya hanya untuk sebagian (contoh: 1 dari 3 pedas). Baris akan dipisah.</span></label>' : '');
+      '<span class="help">Isi lebih kecil dari ' + l.qty + ' kalau catatannya hanya untuk sebagian (contoh: 1 dari 3 pedas). Sisanya tanpa catatan, dan baris akan dipisah.</span></label>' : '');
   const paintChips = function () {
     const cur = parts($('noteText').value).map(function (x) { return x.toLowerCase(); });
     document.querySelectorAll('#noteChips [data-q]').forEach(function (b) { b.classList.toggle('active', cur.indexOf(b.dataset.q.toLowerCase()) >= 0); });
@@ -633,9 +633,11 @@ function posNote(lid) {
       const note = $('noteText').value.replace(/\s+/g, ' ').trim().slice(0, 100);
       const q = $('noteQty') ? Number($('noteQty').value) : l.qty;
       if (!Number.isInteger(q) || q < 1 || q > l.qty) throw new Error('Jumlah porsi harus 1 sampai ' + l.qty + '.');
-      if (q < l.qty && note !== l.note) {
+      if (q < l.qty && note !== '') {
+        // the chosen portions get this note; the rest of the line becomes plain (its own row)
         const copy = Object.assign({}, l, { lid: newLid(), qty: q, note: note, disc: null });
         l.qty -= q;
+        l.note = '';
         if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * unitOf(l)) l.disc = null;
         Pos.cart.splice(Pos.cart.indexOf(l) + 1, 0, copy);
       } else {
@@ -667,7 +669,7 @@ function posMods(lid) {
         '><span>' + esc(m.name) + (off ? ' <i class="habis-tag">HABIS</i>' : '') + '</span><b>+' + rp(m.price) + '</b></button>';
     }).join('') + '</div>' +
     (l.qty > 1 ? '<label class="field"><span>Untuk berapa porsi?</span><input id="modQty" type="number" inputmode="numeric" min="1" max="' + l.qty + '" value="' + l.qty + '">' +
-      '<span class="help">Isi lebih kecil dari ' + l.qty + ' kalau tambahannya hanya untuk sebagian (contoh: 1 dari 2 pakai vanilla). Baris akan dipisah.</span></label>' : '') +
+      '<span class="help">Isi lebih kecil dari ' + l.qty + ' kalau tambahannya hanya untuk sebagian (contoh: 1 dari 2 pakai vanilla). Sisanya tanpa tambahan, dan baris akan dipisah.</span></label>' : '') +
     '<div class="sum-row"><span>Harga per porsi</span><b id="modUnit"></b></div>';
   const paint = function () {
     const ids = Object.keys(chosen).filter(function (k) { return chosen[k]; });
@@ -689,9 +691,11 @@ function posMods(lid) {
       const mods = list.filter(function (m) { return chosen[m.id]; }).map(function (m) { return { id: m.id, name: m.name, price: m.price }; });
       const q = $('modQty') ? Number($('modQty').value) : l.qty;
       if (!Number.isInteger(q) || q < 1 || q > l.qty) throw new Error('Jumlah porsi harus 1 sampai ' + l.qty + '.');
-      if (q < l.qty && modsKey({ mods: mods }) !== modsKey(l)) {
+      if (q < l.qty && mods.length) {
+        // the chosen portions get these add-ons; the rest of the line becomes plain (its own row)
         const copy = Object.assign({}, l, { lid: newLid(), qty: q, mods: mods, disc: null });
         l.qty -= q;
+        l.mods = [];
         if (l.disc && l.disc.type === 'AMT' && l.disc.value > l.qty * unitOf(l)) l.disc = null;
         Pos.cart.splice(Pos.cart.indexOf(l) + 1, 0, copy);
       } else {
