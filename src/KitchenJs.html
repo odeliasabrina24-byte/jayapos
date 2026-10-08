@@ -272,7 +272,7 @@ async function kitSendPending(id) {
 }
 
 /* ----- Siap Diantar (kasir / server): hanya yang harus diantar sekarang; "Semua pesanan" untuk melihat sisanya ----- */
-const Serve = { data: null, view: 'ready', timer: null, lastKeys: null, loading: false, offset: 0, busy: {}, hide: {} };
+const Serve = { data: null, view: 'ready', focus: null, timer: null, lastKeys: null, loading: false, offset: 0, busy: {}, hide: {} };
 const SERVE_STAT = { NEW: 'belum dimulai', PROSES: 'sedang dibuat', PART: 'sebagian siap', DONE: 'siap', SERVED: 'sudah diantar' };
 const SERVE_CLS = { NEW: 'muted', PROSES: 'info', PART: 'info', DONE: 'ready', SERVED: 'good' };
 
@@ -299,7 +299,8 @@ function serveShow() {
     '<div class="kds" id="serveBody"><div class="empty">Memuat…</div></div>');
   Mod.on({
     reload: function () { serveLoad(false); },
-    toggle: function () { Serve.view = Serve.view === 'ready' ? 'all' : 'ready'; serveRender(); },
+    toggle: function () { Serve.view = Serve.view === 'ready' ? 'all' : 'ready'; Serve.focus = null; serveRender(); },
+    table: function (el) { Serve.focus = el.dataset.order; Serve.view = 'all'; serveRender(); },
     serve: function (el) { serveDelivered(el.dataset.order, el.dataset.round, el); }
   });
   serveLoad(false);
@@ -345,9 +346,11 @@ function serveRender() {
     $('serveBody').innerHTML = cards.length ? cards.join('')
       : '<div class="empty">Belum ada yang siap diantar. Layar ini memuat ulang sendiri setiap 15 detik.</div>';
   } else {
-    $('serveTitle').textContent = 'Semua pesanan';
+    const rounds = d.all.filter(function (r) { return !Serve.focus || r.orderId === Serve.focus; });
+    const one = Serve.focus && rounds[0];
+    $('serveTitle').textContent = one ? 'Meja ' + (one.table || '-') : 'Semua pesanan';
     $('serveSwitch').textContent = '‹ Siap diantar';
-    $('serveBody').innerHTML = d.all.length ? serveAllHtml(d.all)
+    $('serveBody').innerHTML = rounds.length ? serveAllHtml(rounds)
       : '<div class="empty">Belum ada pesanan meja yang terbuka.</div>';
   }
 }
@@ -371,6 +374,7 @@ function serveReadyCard(r) {
     '<span class="tk-age">masuk ' + esc(r.time) + '</span></div>' +
     '<div class="tk-meta">Pesanan ' + r.round + ' · ' + (r.readyStamped ? 'siap ' + esc(r.readyAt) + ' (' + m + ' mnt lalu)' : 'sebagian siap · ' + m + ' mnt lalu') + '</div>' +
     '<div class="tk-items">' + lines + '</div>' + left +
+    '<button class="btn small sv-more" type="button" data-act="table" data-order="' + esc(r.orderId) + '">Pesanan lain di ' + esc(r.table || 'meja') + ' ›</button>' +
     '<button class="btn primary tk-done" type="button" data-act="serve" data-order="' + esc(r.orderId) + '" data-round="' + r.round + '"' + (Serve.busy[r.orderId + '|' + r.round] ? ' disabled' : '') + '>' +
     (Serve.busy[r.orderId + '|' + r.round] ? 'Menyimpan…' : '✓ Sudah diantar (' + portions + ' porsi)') + '</button>' +
     '</div>';
@@ -387,7 +391,8 @@ function serveAllHtml(rounds) {
     const o = byOrder[oid];
     const rs = o.rounds.map(function (r) {
       return '<div class="sv-round"><div class="sv-rhead"><b>Pesanan ' + r.round + '</b> · masuk ' + esc(r.time) +
-        (r.readyStamped ? ' · siap ' + esc(r.readyAt) : '') + '</div>' + r.lines.map(serveAllLine).join('') + '</div>';
+        (r.readyStamped ? ' · siap ' + esc(r.readyAt) : '') + '</div>' + r.lines.map(serveAllLine).join('') +
+        (r.state === 'READY' ? '<button class="btn small sv-serve" type="button" data-act="serve" data-order="' + esc(r.orderId) + '" data-round="' + r.round + '">✓ Sudah diantar</button>' : '') + '</div>';
     }).join('');
     return '<div class="ticket sv-table"><div class="tk-head"><div><span class="tk-table">' + esc(o.table || '-') + '</span>' +
       (o.guest ? '<span class="tk-guest">' + esc(o.guest) + '</span>' : '') + '</div></div>' + rs + '</div>';
