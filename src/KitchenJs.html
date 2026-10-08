@@ -49,6 +49,23 @@ function kitBadgeRender() {
 Views.kitchen = function () { kitShow('FOOD'); };
 Views.bar_orders = function () { kitShow('BAR'); };
 
+/* Layar Barista: geser ke kiri langsung ke Siap Diantar. Tombol dan tab tidak ikut. */
+let barSwipe = null;
+document.addEventListener('touchstart', function (e) {
+  barSwipe = null;
+  if (App.view !== 'bar_orders' || e.touches.length !== 1) return;
+  if (e.target.closest('#kitTabs, button, input, .pbox')) return;
+  barSwipe = { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() };
+}, { passive: true });
+document.addEventListener('touchend', function (e) {
+  const s = barSwipe;
+  barSwipe = null;
+  if (!s || App.view !== 'bar_orders' || !App.nav.some(function (n) { return n.id === 'serve'; })) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - s.x, dy = t.clientY - s.y;
+  if (dx < -80 && Math.abs(dy) < 60 && Date.now() - s.at < 700) go('serve');
+}, { passive: true });
+
 function kitShow(station) {
   if (Kit.station !== station) { Kit.lastIds = null; Kit.tab = 'open'; Kit.data = null; Kit.pend = {}; }
   Kit.station = station;
@@ -166,7 +183,8 @@ function kitCard(t, done) {
 function kitRender() {
   const d = Kit.data;
   if (!d || !$('kitBody')) return;
-  $('kitTabs').innerHTML = '<button class="chip' + (Kit.tab === 'open' ? ' active' : '') + '" type="button" data-act="tab" data-t="open">Antrian (' + d.open.length + ')</button>' +
+  const openLabel = Kit.station === 'BAR' ? 'Layar Barista' : 'Antrian';
+  $('kitTabs').innerHTML = '<button class="chip' + (Kit.tab === 'open' ? ' active' : '') + '" type="button" data-act="tab" data-t="open">' + openLabel + ' (' + d.open.length + ')</button>' +
     '<button class="chip' + (Kit.tab === 'done' ? ' active' : '') + '" type="button" data-act="tab" data-t="done">Selesai hari ini (' + d.done.length + ')</button>';
   const now = new Date();
   kitBadgeSet(d.open.length, d.open.filter(function (t) { return kitAge(t).cls; }).length);

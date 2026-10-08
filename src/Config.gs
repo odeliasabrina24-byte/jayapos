@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.2';
+const APP_VERSION = '3.4.3';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -38,7 +38,7 @@ const ROLES = ['ADMIN', 'OWNER', 'CASHIER', 'CHEF', 'BARISTA', 'PURCHASING'];
 const EXTRA_ROLES = ROLES.slice();
 const EXTRA_PERMS = ['tables.serve', 'kitchen.food', 'kitchen.bar', 'pos.sell', 'pos.order', 'menu.soldout'];
 const PERM_LABELS = {
-  'tables.serve': 'Antar pesanan', 'kitchen.food': 'Layar Dapur', 'kitchen.bar': 'Layar Bar',
+  'tables.serve': 'Antar pesanan', 'kitchen.food': 'Layar Dapur', 'kitchen.bar': 'Layar Barista',
   'pos.sell': 'Bayar', 'pos.order': 'Catat pesanan', 'menu.soldout': 'Menu Habis'
 };
 
@@ -91,7 +91,7 @@ const NAV = [
   { id: 'food_recipes',     section: 'Dapur',        label: 'Resep Makanan',      perms: ['recipes.food'], ready: true },
   { id: 'food_cogs',        section: 'Dapur',        label: 'HPP Makanan',         perms: ['cogs.food'], ready: true },
   { id: 'food_stock',       section: 'Dapur',        label: 'Stok Dapur',        perms: ['stock.food'], ready: true },
-  { id: 'bar_orders',       section: 'Bar',          label: 'Layar Bar',         perms: ['kitchen.bar'], ready: true },
+  { id: 'bar_orders',       section: 'Bar',          label: 'Layar Barista',     perms: ['kitchen.bar'], ready: true },
   { id: 'bev_recipes',      section: 'Bar',          label: 'Resep Minuman',  perms: ['recipes.beverage'], ready: true },
   { id: 'bev_cogs',         section: 'Bar',          label: 'HPP Minuman',     perms: ['cogs.beverage'], ready: true },
   { id: 'bev_stock',        section: 'Bar',          label: 'Stok Bar',    perms: ['stock.beverage'], ready: true },
