@@ -86,6 +86,10 @@ function homeRender() {
   const big = [];
   if (hasNav('tables')) big.push('<button class="home-big dine" type="button" data-home="dine"><span class="hb-title">Dine-in</span><span class="hb-sub">Pilih meja</span></button>');
   if (hasNav('pos')) big.push('<button class="home-big take" type="button" data-home="take"><span class="hb-title">Take away</span><span class="hb-sub">Pesanan baru</span></button>');
+  // Live screens: big buttons like Dine-in. Red = food ready to deliver, yellow = drinks waiting.
+  const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
+  if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', kb.READY, 'Ketuk untuk antar ke meja', 'Belum ada yang siap', 'red'));
+  if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR, 'Pesanan minuman menunggu', 'Antrean minuman kosong', 'amber'));
   const tiles = [];
   if (hasNav('tables')) tiles.push(homeTile('tables', 'Meja terisi', d.busy + ' / ' + d.tables, d.busy ? rp(d.openAmount) + ' belum dibayar' : 'Semua kosong'));
   if (hasNav('soldout')) tiles.push(homeTile('soldout', 'Menu habis', String(d.soldOut), d.soldOut ? 'Ketuk untuk lihat / nyalakan' : 'Semua menu tersedia', d.soldOut ? 'warn' : ''));
@@ -93,18 +97,20 @@ function homeRender() {
   if (hasNav('shift')) tiles.push(homeTile('shift', 'Kas & Shift', '›', 'Kas masuk/keluar, setor, tutup shift'));
   if (d.kitchen) tiles.push('<div class="home-tile"><span class="ht-label">Di dapur / bar</span><span class="ht-val">' + d.kitchen +
     '</span><span class="ht-sub">pesanan belum selesai</span></div>');
-  // Shortcuts to the bar and serve screens (counts come from the same badge as the header)
-  const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
-  if (hasNav('bar_orders')) tiles.push(homeTile('bar_orders', 'Layar Barista', kb.BAR != null ? String(kb.BAR) : '›',
-    kb.BAR ? 'pesanan minuman menunggu' : 'Antrean minuman', kb.late ? 'warn' : ''));
-  if (hasNav('serve')) tiles.push(homeTile('serve', 'Siap diantar', kb.READY != null ? String(kb.READY) : '›',
-    kb.READY ? 'Ketuk untuk antar ke meja' : 'Belum ada yang siap', kb.READY ? 'warn' : ''));
   if (hasNav('dashboard')) tiles.push(homeTile('dashboard', 'Dashboard', '›', 'Penjualan hari ini'));
   $('homeBody').innerHTML =
     '<div class="home-hello"><h2>Halo, ' + esc(App.user.name) + '</h2><div class="muted small">' + esc(d.business) + '</div></div>' +
     shiftHtml +
     (big.length ? '<div class="home-bigs">' + big.join('') + '</div>' : '') +
     '<div class="home-tiles">' + tiles.join('') + '</div>';
+}
+
+function homeLive(view, title, n, subOn, subOff, tone) {
+  const on = n != null && n > 0;
+  return '<button class="home-big live ' + (on ? 'on ' + tone : 'off') + '" type="button" data-go="' + view + '">' +
+    '<span class="hb-title">' + esc(title) + '</span>' +
+    '<span class="hb-val">' + (n == null ? '›' : esc(String(n))) + '</span>' +
+    '<span class="hb-sub">' + esc(on ? subOn : subOff) + '</span></button>';
 }
 
 function homeTile(view, label, val, sub, cls) {
