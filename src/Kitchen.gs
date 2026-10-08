@@ -373,9 +373,11 @@ function apiKitchenCount(token) {
     const rows = readRecentRows_('Kitchen_Tickets', 400).filter(function (r) {
       return r.Ticket_ID && dateText_(r.Date) >= yesterday;
     });
-    const out = { FOOD: null, BAR: null, BAR_TABLES: 0, FOOD_N: null, FOOD_TABLES: 0, late: 0, READY: null };
-    const barTables = {}, foodTables = {};
-    if (hasPerm_(user, 'kitchen.food')) out.FOOD_N = 0;
+    const out = { FOOD: null, BAR: null, BAR_TABLES: 0, late: 0, READY: null,
+                  FOOD_LEFT: null, FOOD_ORDERS: 0, BAR_LEFT: null, BAR_ORDERS: 0 };
+    const barTables = {};
+    if (hasPerm_(user, 'kitchen.food')) out.FOOD_LEFT = 0;
+    if (hasPerm_(user, 'kitchen.bar')) out.BAR_LEFT = 0;
     if (hasPerm_(user, 'kitchen.food')) out.FOOD = 0;
     if (hasPerm_(user, 'kitchen.bar')) out.BAR = 0;
     if (hasPerm_(user, 'tables.serve')) {
@@ -393,8 +395,6 @@ function apiKitchenCount(token) {
       if (out.FOOD !== null && waiting('Food_Status')) {
         out.FOOD++;
         if (old) out.late++;
-        const leftF = leftOf('FOOD');
-        if (leftF > 0) { out.FOOD_N += leftF; foodTables[String(r.Table_Name || '')] = true; }
       }
       if (out.BAR !== null && waiting('Bar_Status')) {
         const left = leftOf('BAR');
@@ -403,7 +403,17 @@ function apiKitchenCount(token) {
       }
     });
     out.BAR_TABLES = Object.keys(barTables).length;
-    out.FOOD_TABLES = Object.keys(foodTables).length;
+    // Still to deliver (made or not yet made, not "Sudah diantar"), counted per pesanan: same tickets as Siap diantar
+    const left = { FOOD: { n: 0, o: {} }, BAR: { n: 0, o: {} } };
+    serveTickets_(serveOrders_()).forEach(function (r) {
+      ['FOOD', 'BAR'].forEach(function (st) {
+        const n = ticketItems_(r).filter(function (i) { return i.st === st; })
+          .reduce(function (s, i) { return s + Math.max(0, (Number(i.qty) || 0) - (Number(i.srv) || 0)); }, 0);
+        if (n > 0) { left[st].n += n; left[st].o[String(r.Order_ID) + '|' + (Number(r.Round) || 0)] = true; }
+      });
+    });
+    if (out.FOOD_LEFT !== null) { out.FOOD_LEFT = left.FOOD.n; out.FOOD_ORDERS = Object.keys(left.FOOD.o).length; }
+    if (out.BAR_LEFT !== null) { out.BAR_LEFT = left.BAR.n; out.BAR_ORDERS = Object.keys(left.BAR.o).length; }
     return out;
   });
 }
