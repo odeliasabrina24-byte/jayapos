@@ -1309,7 +1309,8 @@ function posBind() {
     else if (a === 'equal-off') { Pos.split = null; posAfterChange(); }
   });
   $('equalBtn').addEventListener('click', function () {
-    if (Pos.ctx && Pos.cart.some(function (l) { return l.round; })) posSplitMenu(); else posSplitEqual();
+    // Bill meja: always offer "Per item" + "Bagi rata" (takeaway has no table, so only bagi rata)
+    if (Pos.ctx) posSplitMenu(); else posSplitEqual();
   });
   $('splitParts').addEventListener('click', function (e) {
     const row = e.target.closest('.part');
