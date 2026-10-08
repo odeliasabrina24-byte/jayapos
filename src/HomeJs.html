@@ -93,6 +93,12 @@ function homeRender() {
   if (hasNav('shift')) tiles.push(homeTile('shift', 'Kas & Shift', '›', 'Kas masuk/keluar, setor, tutup shift'));
   if (d.kitchen) tiles.push('<div class="home-tile"><span class="ht-label">Di dapur / bar</span><span class="ht-val">' + d.kitchen +
     '</span><span class="ht-sub">pesanan belum selesai</span></div>');
+  // Shortcuts to the bar and serve screens (counts come from the same badge as the header)
+  const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
+  if (hasNav('bar_orders')) tiles.push(homeTile('bar_orders', 'Layar Barista', kb.BAR != null ? String(kb.BAR) : '›',
+    kb.BAR ? 'pesanan minuman menunggu' : 'Antrean minuman', kb.late ? 'warn' : ''));
+  if (hasNav('serve')) tiles.push(homeTile('serve', 'Siap diantar', kb.READY != null ? String(kb.READY) : '›',
+    kb.READY ? 'Ketuk untuk antar ke meja' : 'Belum ada yang siap', kb.READY ? 'warn' : ''));
   if (hasNav('dashboard')) tiles.push(homeTile('dashboard', 'Dashboard', '›', 'Penjualan hari ini'));
   $('homeBody').innerHTML =
     '<div class="home-hello"><h2>Halo, ' + esc(App.user.name) + '</h2><div class="muted small">' + esc(d.business) + '</div></div>' +
