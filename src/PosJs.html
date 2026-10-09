@@ -1175,7 +1175,7 @@ function posValidate() {
     return '';
   }
   if (!App.paymentMethods[Pos.payment]) return 'Pilih metode pembayaran.';
-  if (Pos.payment === 'CASH') {
+  if (Pos.payment === 'CASH' && t.grand > 0) {   // total Rp 0 (mis. diskon 100%) tidak perlu uang diterima
     if (!Pos.cash) return 'Isi uang yang diterima (atau ketuk "Uang pas").';
     if (Pos.cash < t.grand) return 'Uang yang diterima kurang dari total.';
   }

@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.29';
+const APP_VERSION = '3.4.30';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -16,13 +16,14 @@ const PAYMENT_METHODS = {
   CASH: 'Tunai',
   QRIS: 'QRIS',
   DEBIT: 'Debit',
+  EDC_BRI: 'EDC BRI',
   CREDIT_CARD: 'Kartu Kredit',
   OTHER: 'Lainnya'
 };
 /** Label for a bill paid with more than one method (split bill). Stored as Payment_Method = MIXED. */
 const MIXED_LABEL = 'Campuran';
 /** Order of the payment buttons on the POS (an object's key order is not kept when sent to the phone). */
-const PAYMENT_ORDER = ['CASH', 'QRIS', 'DEBIT', 'CREDIT_CARD', 'OTHER'];
+const PAYMENT_ORDER = ['CASH', 'QRIS', 'DEBIT', 'EDC_BRI', 'CREDIT_CARD', 'OTHER'];
 
 /** How roles and statuses are shown in the app (the codes in the Sheet stay in English). */
 const ROLE_LABELS = { ADMIN: 'Admin', OWNER: 'Owner', CASHIER: 'Kasir', CHEF: 'Chef', BARISTA: 'Barista',

@@ -6,13 +6,20 @@ function notifyPush_(title, body, priority) {
   try {
     const topic = String(getSettingsMap_().Notif_Topic || '').trim();
     if (!topic) return;
-    UrlFetchApp.fetch('https://ntfy.sh/' + encodeURIComponent(topic), {
+    const res = UrlFetchApp.fetch('https://ntfy.sh/' + encodeURIComponent(topic), {
       method: 'post',
       payload: String(body || ''),
       contentType: 'text/plain; charset=utf-8',
       headers: { Title: String(title || 'JayaPOS'), Priority: priority || 'high' },
       muteHttpExceptions: true
     });
+    // ntfy membalas error (mis. 429/403) tanpa melempar exception, jadi dicatat di sini.
+    const code = res.getResponseCode();
+    if (code < 200 || code >= 300) {
+      console.error('notifyPush_ ntfy ' + code + ': ' + res.getContentText());
+    } else {
+      console.log('notifyPush_ terkirim ke topik ' + topic + ' (' + code + ')');
+    }
   } catch (e) {
     console.error('notifyPush_ gagal: ' + e);
   }
