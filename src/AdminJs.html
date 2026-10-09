@@ -97,7 +97,8 @@ Views.users = async function () {
         '<div class="row-main"><div class="row-title">' + esc(u.name) + '</div>' +
         '<div class="row-sub">@' + esc(u.username) + ' · <b>' + esc(u.roleText || roleLabel(u.role)) + '</b>' + (u.active ? '' : ' · nonaktif') + (u.hasPin ? '' : ' · belum ada PIN') + '</div></div>' +
         '<div class="row-actions"><button class="btn small" type="button" data-edit="' + esc(u.id) + '">Ubah</button>' +
-        '<button class="btn small" type="button" data-pin="' + esc(u.id) + '">PIN</button></div></div>';
+        '<button class="btn small" type="button" data-pin="' + esc(u.id) + '">PIN</button>' +
+        '<button class="btn small danger" type="button" data-del="' + esc(u.id) + '">Hapus</button></div></div>';
     }).join('');
   } catch (e) {
     $('userList').innerHTML = '<p class="error">' + esc(e.message) + '</p>';
@@ -173,6 +174,22 @@ function userEdit(u) {
   watchPrimaryRole();
 }
 
+function userDelete(u) {
+  openForm({
+    title: 'Hapus ' + u.name,
+    submitLabel: 'Hapus akun',
+    fields: [
+      { name: 'confirm', label: 'Ketik username (' + u.username + ') untuk konfirmasi', value: '',
+        help: 'Akun dihapus permanen. Kalau akun sudah punya riwayat transaksi atau shift, penghapusan ditolak dan sebaiknya dinonaktifkan saja.' }
+    ],
+    onSubmit: async function (v) {
+      await api('apiDeleteUser', App.token, u.id, v.confirm);
+      toast('Akun ' + u.username + ' dihapus');
+      Views.users();
+    }
+  });
+}
+
 function userPin(u) {
   openForm({
     title: 'PIN baru untuk ' + u.name,
@@ -242,10 +259,10 @@ $('userAdd').addEventListener('click', userAdd);
 $('userList').addEventListener('click', function (e) {
   const b = e.target.closest('button');
   if (!b) return;
-  const id = b.dataset.edit || b.dataset.pin;
+  const id = b.dataset.edit || b.dataset.pin || b.dataset.del;
   const u = Usr.list.filter(function (x) { return x.id === id; })[0];
   if (!u) return;
-  if (b.dataset.edit) userEdit(u); else userPin(u);
+  if (b.dataset.edit) userEdit(u); else if (b.dataset.pin) userPin(u); else userDelete(u);
 });
 $('settingsList').addEventListener('click', async function (e) {
   const b = e.target.closest('button');

@@ -342,3 +342,47 @@ function apiResetSalesData(token, confirmText) {
     });
   });
 }
+
+/** True if any row of these sheet columns points at this user (by ID or by name). */
+function userInUse_(u) {
+  const checks = [
+    ['Transactions', ['Cashier_ID'], ['Cashier']],
+    ['Shifts', ['Opened_By_ID', 'Closed_By_ID'], ['Opened_By', 'Closed_By']],
+    ['Cash_Movements', ['User_ID'], ['User_Name']],
+    ['Open_Orders', [], ['Opened_By', 'Updated_By']]
+  ];
+  return checks.some(function (c) {
+    const rows = readTable_(c[0]).rows;
+    return rows.some(function (r) {
+      return c[1].some(function (k) { return String(r[k] == null ? '' : r[k]).trim() === u.id; }) ||
+             c[2].some(function (k) { return String(r[k] == null ? '' : r[k]).trim() === u.name && u.name; });
+    });
+  });
+}
+
+/**
+ * Admin only. Menghapus baris akun di sheet Users. Ditolak untuk admin, akun sendiri,
+ * dan akun yang sudah punya riwayat transaksi / shift (nonaktifkan saja).
+ */
+function apiDeleteUser(token, userId, confirmUsername) {
+  return run_(function () {
+    const actor = requirePerm_(token, '*');
+    return withLock_(function () {
+      const id = String(userId || '');
+      const u = getUsers_().filter(function (x) { return x.id === id; })[0];
+      if (!u) throw new Error('Akun tidak ditemukan. Muat ulang layar.');
+      if (u.id === actor.id) throw new Error('Tidak bisa menghapus akun sendiri.');
+      if (hasPerm_(u, '*')) throw new Error('Akun admin tidak bisa dihapus dari aplikasi.');
+      if (String(confirmUsername || '').trim().replace(/^@/, '').toLowerCase() !== String(u.username).toLowerCase()) {
+        throw new Error('Ketik username "' + u.username + '" untuk konfirmasi.');
+      }
+      if (userInUse_(u)) throw new Error('Akun ini sudah punya riwayat transaksi atau shift. Nonaktifkan saja, jangan dihapus.');
+      const sh = readTable_('Users');
+      const row = sh.rows.filter(function (r) { return String(r.User_ID).trim() === id; })[0];
+      if (!row) throw new Error('Baris akun tidak ditemukan di sheet Users.');
+      sh.sheet.deleteRow(row._row);
+      audit_(actor, 'DELETE', 'User', id, { username: u.username, name: u.name });
+      return { id: id, username: u.username };
+    });
+  });
+}
