@@ -129,6 +129,7 @@ function kitMinutes(t) {
 
 function kitCard(t, done) {
   const age = kitAge(t);
+  const servedTag = done && t.status === 'SERVED' ? ' · sudah diantar' : '';
   const isVoid = t.kind === 'VOID';
   const busy = !!Kit.busy[t.id];
   const head = '<div class="tk-head"><div><span class="tk-table">' + esc(t.table || '-') + '</span>' +
@@ -168,7 +169,6 @@ function kitCard(t, done) {
   const partial = t.ready > 0 && t.ready < t.total;
   const stateTag = !done && !isVoid && t.status === 'PROSES'
     ? '<div class="tk-state">' + (partial ? 'Siap sebagian · ' + t.ready + ' dari ' + t.total + ' porsi' : 'Sedang dibuat') + '</div>' : '';
-  const servedTag = done && t.status === 'SERVED' ? ' · sudah diantar' : '';
   return '<div class="ticket' + (isVoid ? ' void' : '') + (done ? ' done' : '') + '">' + head + stateTag + '<div class="tk-items">' + items + '</div>' + reason + btn + '</div>';
 }
 
