@@ -310,3 +310,35 @@ function apiSaveSetting(token, key, value) {
     });
   });
 }
+
+/** Sheet penjualan & kas yang dikosongkan saat reset data uji coba. Menu, meja, user, pengaturan, stok dan Audit_Log tetap. */
+const RESET_SALES_SHEETS_ = ['Open_Orders', 'Transactions', 'Transaction_Details', 'Payments', 'Kitchen_Tickets', 'Shifts', 'Cash_Movements'];
+
+/**
+ * Admin only. Kosongkan data penjualan uji coba (pesanan meja, transaksi, pembayaran, tiket dapur, shift & kas)
+ * sebelum buka usaha. Spreadsheet dicadangkan dulu ke Drive. Nomor transaksi dan takeaway mulai dari awal lagi.
+ */
+function apiResetSalesData(token, confirmText) {
+  return run_(function () {
+    const user = requirePerm_(token, '*');
+    if (String(confirmText || '').trim() !== 'HAPUS') throw new Error('Ketik HAPUS (huruf besar semua) untuk konfirmasi.');
+    return withLock_(function () {
+      const ss = getSpreadsheet_();
+      const stamp = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm');
+      const backup = DriveApp.getFileById(ss.getId()).makeCopy('JayaPOS backup sebelum reset ' + stamp);
+      const cleared = {};
+      RESET_SALES_SHEETS_.forEach(function (name) {
+        const sh = getSheet_(name);
+        const n = Math.max(0, sh.getLastRow() - 1);
+        if (n > 0) sh.deleteRows(2, n);
+        cleared[name] = n;
+      });
+      const props = PropertiesService.getScriptProperties();
+      Object.keys(props.getProperties()).forEach(function (k) {
+        if (k.indexOf('TXSEQ_') === 0 || k.indexOf('TASEQ_') === 0) props.deleteProperty(k);
+      });
+      audit_(user, 'RESET', 'Sales', 'DATA_UJI', { cleared: cleared, backup: backup.getName() });
+      return { cleared: cleared, backup: backup.getName() };
+    });
+  });
+}

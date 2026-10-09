@@ -207,6 +207,10 @@ function updRender() {
 
 Views.settings = async function () {
   updRender();
+  $('resetCard').innerHTML = '<div class="row-title">Kosongkan data uji coba</div>' +
+    '<div class="row-sub">Menghapus semua pesanan meja, transaksi, pembayaran, tiket dapur, shift dan kas masuk/keluar. ' +
+    'Menu, meja, user, pengaturan, stok dan riwayat audit tetap. Spreadsheet dicadangkan dulu ke Drive. Tidak bisa dibatalkan.</div>' +
+    '<div class="inline"><button class="btn danger" type="button" id="resetSalesBtn">Kosongkan data penjualan…</button></div>';
   $('settingsList').innerHTML = '<div class="empty">Memuat…</div>';
   try {
     const rows = await api('apiGetSettings', App.token);
@@ -262,3 +266,20 @@ $('settingsList').addEventListener('click', async function (e) {
   }
 });
 </script>
+
+$('resetCard').addEventListener('click', function (e) {
+  if (!e.target.closest('#resetSalesBtn')) return;
+  openForm({
+    title: 'Kosongkan data penjualan',
+    submitLabel: 'Kosongkan',
+    fields: [
+      { name: 'confirm', label: 'Ketik HAPUS untuk konfirmasi', value: '', help: 'Hanya dilakukan sekali, sebelum buka usaha. Cadangan spreadsheet dibuat dulu di Drive.' }
+    ],
+    onSubmit: async function (v) {
+      const r = await api('apiResetSalesData', App.token, v.confirm);
+      const c = r.cleared, total = Object.keys(c).reduce(function (s, k) { return s + c[k]; }, 0);
+      Pos.loaded = false;
+      toast('Data penjualan dikosongkan (' + total + ' baris). Cadangan: ' + r.backup);
+    }
+  });
+});
