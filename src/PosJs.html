@@ -122,6 +122,7 @@ async function posCheckShift() {
 function posSyncInputs() {
   const d = Pos.billDisc;
   $('discountInput').value = d.value ? (d.type === 'AMT' ? fmtNum(d.value) : String(d.value).replace('.', ',')) : '';
+  $('discountReason').value = d.reason || '';
   $('cashInput').value = Pos.cash ? fmtNum(Pos.cash) : '';
   document.querySelectorAll('#billDiscType [data-t]').forEach(function (b) { b.classList.toggle('active', b.dataset.t === d.type); });
 }
@@ -1016,6 +1017,7 @@ function posRenderCart() {
   $('sumItemDisc').textContent = '-' + rp(t.itemDiscount);
   $('discountRow').hidden = !Pos.allowDiscount || !pay;
   $('billDiscNote').hidden = !t.billDiscount;
+  $('discReasonRow').hidden = !(Pos.allowDiscount && pay && t.billDiscount);
   $('billDiscNote').firstElementChild.textContent = Pos.billDisc.type === 'PCT' ? 'Potongan bill ' + discLabel(Pos.billDisc) : 'Potongan bill';
   $('sumBillDisc').textContent = '-' + rp(t.billDiscount);
   $('serviceRow').hidden = !(ch.servicePct > 0) || !pay;
@@ -1163,6 +1165,7 @@ function posValidate() {
   if (!t.payItems) return 'Keranjang masih kosong.';
   if (Pos.billDisc.type === 'PCT' && Pos.billDisc.value > 100) return 'Diskon bill maksimal 100%.';
   if (Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet) return 'Diskon bill lebih besar dari subtotal.';
+  if (t.billDiscount > 0 && String(Pos.billDisc.reason || '').trim().length < 3) return 'Tulis alasan diskon bill (minimal 3 huruf).';
   const lim = checkDiscLimit(t);
   if (lim) return lim;
   if (Pos.shift.required && !Pos.shift.open) return 'Shift kas belum dibuka. Tekan "Buka shift" lalu hitung uang di laci.';
@@ -1388,6 +1391,10 @@ function posBind() {
     posSaveDraft();
     posRenderCart();
     posError(Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet ? 'Diskon bill lebih besar dari subtotal.' : checkDiscLimit(t));
+  });
+  $('discountReason').addEventListener('input', function (e) {
+    Pos.billDisc.reason = e.target.value.slice(0, 60);
+    posSaveDraft();
   });
   $('cashInput').addEventListener('input', function (e) {
     Pos.cash = parseMoney(e.target.value);

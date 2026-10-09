@@ -340,6 +340,8 @@ function apiCompleteOrder(token, order) {
     const takeawayLines = openOrderId ? null : priceLines_(parseLines_(order.items, false), null, products);
     const ch = chargeSettings_();
     const billDisc = readDiscount_(order.billDiscount, 'bill');
+    const billDiscReason = billDisc ? String(order.billDiscount.reason || '').trim().slice(0, 60) : '';
+    if (billDisc && billDiscReason.length < 3) throw new Error('Tulis alasan diskon bill (minimal 3 huruf), contoh: Barter Gekta.');
 
     // COGS per serving from recipes (falls back to Products.Cost when a product has no recipe)
     let rdata = { recipes: {}, ingredients: {} };
@@ -441,7 +443,7 @@ function apiCompleteOrder(token, order) {
         Order_Type: bill ? 'DINE_IN' : 'TAKEAWAY', Table_Name: bill ? bill.tableName : taNo,
         Pax: bill ? (priorPaid ? 0 : bill.pax) : '',
         Service_Charge: tot.service, Tax: tot.tax, Order_ID: bill ? bill.id : '',
-        Item_Discount: tot.itemDiscount, Bill_Discount: tot.billDiscount, Bill_Discount_Info: discountInfo_(billDisc),
+        Item_Discount: tot.itemDiscount, Bill_Discount: tot.billDiscount, Bill_Discount_Info: discountInfo_(billDisc) + (billDiscReason ? ' · ' + billDiscReason : ''),
         Rounding: tot.rounding, Void_Reason: '', Void_By: '', Void_At: '',
         Guest_Name: guest, Shift_ID: shift ? shift.id : '', Split_Info: split.join(' · '),
         Duration_Min: bill && bill.openedMs ? Math.max(0, Math.round((now.getTime() - bill.openedMs) / 60000)) : ''
