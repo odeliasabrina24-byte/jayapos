@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.28';
+const APP_VERSION = '3.4.29';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -125,6 +125,7 @@ const SETTINGS_DEFAULTS = [
   ['Receipt_Phone', '', 'Telepon / Instagram di struk (boleh kosong)'],
   ['Receipt_Footer', 'Terima Kasih', 'Baris terakhir di struk'],
   ['Receipt_Width_mm', '58', 'Lebar kertas struk: 58 atau 80'],
+  ['Notif_Topic', '', 'Topik notif HP (ntfy). Kosongkan = notif mati. Pakai nama panjang yang sulit ditebak.'],
   ['Tx_Prefix', 'JY', 'Awalan nomor transaksi (huruf saja), contoh JY-20261006-0001'],
   ['Category_Order', 'Crispy Pork,Food,Coffee,Non-Coffee,Drinks,Add-ons', 'Urutan tab kategori di kasir, dipisah koma'],
   ['Cashier_History_Days', '2', 'Berapa hari riwayat penjualan yang bisa dilihat kasir (2 = hari ini + kemarin)'],
@@ -153,7 +154,7 @@ const SETTINGS_DEFAULTS = [
 /** Short Indonesian names for the Settings screen. */
 const SETTING_LABELS = {
   Business_Name: 'Nama usaha', App_Name: 'Nama aplikasi', Outlet_ID: 'Kode outlet', Receipt_Address: 'Alamat di struk',
-  Receipt_Phone: 'Telepon di struk', Receipt_Footer: 'Penutup struk', Receipt_Width_mm: 'Lebar struk (mm)',
+  Receipt_Phone: 'Telepon di struk', Receipt_Footer: 'Penutup struk', Receipt_Width_mm: 'Lebar struk (mm)', Notif_Topic: 'Topik notif HP (ntfy)',
   Tx_Prefix: 'Awalan nomor transaksi', Category_Order: 'Urutan kategori', Cashier_History_Days: 'Riwayat untuk kasir (hari)',
   Allow_Discount: 'Kasir boleh diskon', Max_Discount_Percent: 'Batas diskon kasir (%)', Service_Percent: 'Service (%)',
   Service_Label: 'Nama service', Service_On_Takeaway: 'Service untuk takeaway', Tax_Percent: 'Pajak (%)',

@@ -49,6 +49,9 @@ function createTicket_(info, lines, products) {
       Items_JSON: JSON.stringify({ items: items, reason: info.reason || '' }),
       Food_Status: hasFood ? 'NEW' : '', Food_Done_At: '', Bar_Status: hasBar ? 'NEW' : '', Bar_Done_At: ''
     }]);
+    if (String(info.kind || 'ORDER') === 'ORDER') {
+      notifyTicketLines_('Pesanan baru', info.tableName, info.round, items);
+    }
     return id;
   } catch (e) {
     console.error('createTicket_ failed: ' + e);
@@ -158,6 +161,7 @@ function countReady_(stateObj) {
  * forceNew: station whose items are sent back to the queue (undo), or ''.
  */
 function saveTicketItems_(r, data, forceNew) {
+  const oldItems = ticketData_(r).items;                // before this save, to see what just became ready
   const fields = { Items_JSON: JSON.stringify(data) };
   [['FOOD', 'Food_Status', 'Food_Done_At'], ['BAR', 'Bar_Status', 'Bar_Done_At']].forEach(function (p) {
     const old = String(r[p[1]] || '');
@@ -169,6 +173,15 @@ function saveTicketItems_(r, data, forceNew) {
     fields[p[2]] = (q === 'DONE' || q === 'SERVED') ? (cellText_(r[p[2]]) || nowStamp_()) : '';
   });
   updateRow_('Kitchen_Tickets', r._row, fields);
+  if (String(r.Kind || 'ORDER') === 'ORDER') {
+    const fresh = [];
+    data.items.forEach(function (i, idx) {
+      const before = oldItems[idx];
+      const now = unitsToServe_(i), was = before ? unitsToServe_(before) : 0;
+      if (now > was) fresh.push({ qty: now - was, name: i.name, st: i.st });
+    });
+    if (fresh.length) notifyTicketLines_('Siap diantar', r.Table_Name, r.Round, fresh);
+  }
 }
 
 function ticketFromRow_(r, station) {
