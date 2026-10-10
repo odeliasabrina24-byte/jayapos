@@ -123,6 +123,22 @@ function rsvpDueReminders_(tables, open) {
   return alerts;
 }
 
+/** Pemicu tiap 5 menit: kirim pengingat RSVP walau tidak ada layar meja yang terbuka. Dipasang sekali (ulang aman). */
+function installRsvpReminderTrigger_() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'rsvpReminderTick_') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('rsvpReminderTick_').timeBased().everyMinutes(5).create();
+}
+
+function rsvpReminderTick_() {
+  const open = {};
+  openOrders_().forEach(function (o) {
+    if (!open[o.tableId]) open[o.tableId] = { guest: o.guestName, pax: o.pax };
+  });
+  rsvpDueReminders_(tablesList_(), open);
+}
+
 function apiGetRsvp(token, date) {
   return run_(function () {
     requirePerm_(token, 'rsvp.manage');

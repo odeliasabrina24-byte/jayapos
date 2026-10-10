@@ -36,6 +36,7 @@ function onOpen() {
     .addItem('1. Setup / perbaiki database', 'menuSetup')
     .addItem('2. Set / reset PIN pengguna', 'menuSetPin')
     .addItem('3. Terapkan perubahan sheet Users', 'menuApplyUsers')
+    .addItem('4. Aktifkan pengingat RSVP', 'menuRsvpReminder')
     .addSeparator()
     .addItem('Tampilkan link aplikasi', 'menuShowLink')
     .addToUi();
@@ -65,9 +66,15 @@ function askText_(ui, title, message) {
   return res.getResponseText().trim();
 }
 
+function menuRsvpReminder() {
+  installRsvpReminderTrigger_();
+  sheetUi_().alert('Pengingat RSVP aktif. Dicek tiap 5 menit, notif HP dikirim 15 menit sebelum jam RSVP meja khusus.');
+}
+
 function menuSetup() {
   const ui = sheetUi_();
   setupDatabase_();
+  installRsvpReminderTrigger_();
   const users = getUsers_();
   const hasAdmin = users.some(function (u) { return hasPerm_(u, '*') && u.active && u.hash; });
   let msg = 'Database JayaPOS siap (versi ' + APP_VERSION + ').\n\n';
