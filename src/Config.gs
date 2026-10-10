@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.34';
+const APP_VERSION = '3.4.35';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -68,10 +68,10 @@ const ROLE_PERMISSIONS = {
   ADMIN:      ['*'],
   OWNER:      ['dashboard.view', 'history.view_all', 'receipt.view', 'products.view', 'products.view_cost',
                'reports.view', 'purchasing.view', 'inventory.view', 'suppliers.view', 'notifications.view',
-               'shift.view', 'cash.confirm'],
+               'shift.view', 'cash.confirm', 'rsvp.manage'],
   CASHIER:    ['pos.sell', 'pos.order', 'tables.serve', 'tables.layout', 'history.view_recent', 'receipt.view', 'pos.void',
-               'shift.manage', 'menu.soldout'],
-  CHEF:       ['kitchen.food', 'menu.soldout', 'recipes.food', 'cogs.food', 'stock.food', 'ingredients.food'],
+               'shift.manage', 'menu.soldout', 'rsvp.manage'],
+  CHEF:       ['kitchen.food', 'menu.soldout', 'recipes.food', 'cogs.food', 'stock.food', 'ingredients.food', 'rsvp.manage'],
   BARISTA:    ['kitchen.bar', 'menu.soldout', 'recipes.beverage', 'cogs.beverage', 'stock.beverage', 'ingredients.beverage'],
   PURCHASING: ['suppliers.manage', 'suppliers.view', 'purchasing.manage', 'purchasing.view', 'ingredients.purchasing']
 };
@@ -84,6 +84,7 @@ const NAV = [
   { id: 'home',             section: 'Penjualan',    label: 'Beranda',           perms: ['pos.sell'], ready: true },
   { id: 'pos',              section: 'Penjualan',    label: 'Kasir (POS)',       perms: ['pos.sell', 'pos.order'], ready: true },
   { id: 'tables',           section: 'Penjualan',    label: 'Meja',            perms: ['tables.serve', 'tables.layout'], ready: true },
+  { id: 'rsvp',             section: 'Penjualan',    label: 'RSVP',            perms: ['rsvp.manage'], ready: true },
   { id: 'serve',            section: 'Penjualan',    label: 'Siap Diantar',      perms: ['tables.serve'], ready: true },
   { id: 'shift',            section: 'Penjualan',    label: 'Kas & Shift',       perms: ['shift.manage', 'shift.view'], ready: true },
   { id: 'soldout',          section: 'Penjualan',    label: 'Menu Habis',        perms: ['menu.soldout'], ready: true },
@@ -314,6 +315,13 @@ const SCHEMA = {
               'Kind', 'Items_JSON', 'Food_Status', 'Food_Done_At', 'Bar_Status', 'Bar_Done_At'],
     text: ['Ticket_ID', 'Date', 'Created_At', 'Created_By', 'Order_ID', 'Table_Name', 'Guest_Name', 'Kind', 'Items_JSON',
            'Food_Status', 'Food_Done_At', 'Bar_Status', 'Bar_Done_At']
+  },
+  // Reservasi (RSVP) tamu: jam datang, jumlah orang, meja, dan pesanan awal (opsional).
+  Reservations: {
+    headers: ['Reservation_ID', 'Date', 'Time', 'Guest_Name', 'Pax', 'Table_Name', 'Pesanan_Awal', 'Notes', 'Status',
+              'Created_By', 'Created_At', 'Updated_At'],
+    text: ['Reservation_ID', 'Date', 'Time', 'Guest_Name', 'Table_Name', 'Pesanan_Awal', 'Notes', 'Status', 'Created_By',
+           'Created_At', 'Updated_At']
   },
   Notifications: {
     headers: ['Notification_ID', 'Timestamp', 'Type', 'Title', 'Message', 'Reference_ID', 'Table_Name', 'Amount', 'Reason',

@@ -1,0 +1,92 @@
+<script>
+/* ================= RsvpJs: daftar RSVP (tamu yang sudah pesan meja) ================= */
+
+const Rsvp = { date: '', rows: [] };
+
+function rsvpShift(days) {
+  const d = new Date((Rsvp.date || posTodayStr()) + 'T12:00:00');
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+Views.rsvp = function () {
+  if (!Rsvp.date) Rsvp.date = posTodayStr();
+  rsvpLoad();
+};
+
+async function rsvpLoad() {
+  Mod.render('<div class="empty">Memuat…</div>');
+  try {
+    const d = await api('apiGetRsvp', App.token, Rsvp.date);
+    Rsvp.date = d.date;
+    Rsvp.rows = d.rows;
+    rsvpRender();
+  } catch (e) {
+    Mod.render('<div class="empty">' + esc(e.message) + '</div>');
+  }
+}
+
+function rsvpRender() {
+  const label = Rsvp.date === posTodayStr() ? 'Hari ini · ' + Rsvp.date : Rsvp.date;
+  const pax = Rsvp.rows.reduce(function (s, r) { return s + r.pax; }, 0);
+  let html = '<div class="toolbar"><button class="btn small" type="button" data-act="prev">◀ Kemarin</button>' +
+    '<button class="btn small" type="button" data-act="today">Hari ini</button>' +
+    '<button class="btn small" type="button" data-act="next">Besok ▶</button>' +
+    '<button class="btn small" type="button" data-act="add">+ RSVP baru</button></div>' +
+    '<p class="muted small">' + esc(label) + ' · ' + Rsvp.rows.length + ' tamu · ' + pax + ' pax</p>';
+  html += Rsvp.rows.length ? Rsvp.rows.map(function (r) {
+    const items = r.items ? r.items.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+      .map(function (s) { return '<div>' + esc(s) + '</div>'; }).join('') : '<div class="muted">Belum ada pesanan awal</div>';
+    return '<div class="tx">' +
+      '<div class="tx-top"><b>' + esc(r.time) + ' · ' + esc(r.guest) + '</b><span class="tag">' + r.pax + ' pax</span></div>' +
+      '<div class="tx-meta">' + (r.table ? '<span class="tag table-tag">' + esc(r.table) + '</span>' : '<span class="tag">Meja belum ditentukan</span>') + '</div>' +
+      '<div class="small">' + items + '</div>' +
+      (r.notes ? '<div class="small muted">Catatan: ' + esc(r.notes) + '</div>' : '') +
+      '<div class="toolbar"><button class="link-btn small" type="button" data-act="edit" data-id="' + esc(r.id) + '">Ubah</button>' +
+      '<button class="link-btn small" type="button" data-act="cancel" data-id="' + esc(r.id) + '">Batalkan</button></div>' +
+      '</div>';
+  }).join('') : '<div class="empty">Belum ada RSVP untuk tanggal ini.</div>';
+  Mod.render(html);
+  Mod.on({
+    prev: function () { Rsvp.date = rsvpShift(-1); rsvpLoad(); },
+    next: function () { Rsvp.date = rsvpShift(1); rsvpLoad(); },
+    today: function () { Rsvp.date = posTodayStr(); rsvpLoad(); },
+    add: function () { rsvpForm(null); },
+    edit: function (el) { rsvpForm(Rsvp.rows.filter(function (r) { return r.id === el.dataset.id; })[0]); },
+    cancel: function (el) { rsvpCancel(el.dataset.id); }
+  });
+}
+
+function rsvpForm(r) {
+  openForm({
+    title: r ? 'Ubah RSVP' : 'RSVP baru',
+    fields: [
+      { name: 'date', label: 'Tanggal', value: r ? r.date : Rsvp.date, help: 'Format 2026-10-11' },
+      { name: 'time', label: 'Jam', value: r ? r.time : '19:00', help: 'Format 19:00' },
+      { name: 'guest', label: 'Nama tamu', value: r ? r.guest : '' },
+      { name: 'pax', label: 'Jumlah orang (pax)', type: 'number', value: r ? r.pax : 2 },
+      { name: 'table', label: 'Meja (opsional)', value: r ? r.table : '', help: 'Contoh: T1 atau O3. Boleh dikosongkan.' },
+      { name: 'items', label: 'Pesanan awal (opsional)', value: r ? r.items : '', help: 'Pisahkan dengan koma, contoh: 2x Babi Kecap, 1x Iced Tea' },
+      { name: 'notes', label: 'Catatan (opsional)', value: r ? r.notes : '' }
+    ],
+    submitLabel: 'Simpan',
+    onSubmit: async function (v) {
+      await api('apiSaveRsvp', App.token, Object.assign({ id: r ? r.id : '' }, v));
+      toast('RSVP disimpan.');
+      Rsvp.date = v.date;
+      rsvpLoad();
+    }
+  });
+}
+
+async function rsvpCancel(id) {
+  if (!confirm('Batalkan RSVP ini?')) return;
+  try {
+    await api('apiCancelRsvp', App.token, id);
+    toast('RSVP dibatalkan.');
+    rsvpLoad();
+  } catch (e) {
+    toast(e.message, 'warn');
+  }
+}
+</script>
