@@ -94,9 +94,16 @@ function rsvpReservedMap_(tables, open) {
   return out;
 }
 
+function parseStamp_(s) {
+  const t = Date.parse(String(s || '').replace(' ', 'T') + '+08:00');   // nowStamp_ memakai zona Asia/Makassar
+  return isNaN(t) ? 0 : t;
+}
+
 /**
- * Pengingat HP untuk meja khusus RSVP, 15 menit sebelum jam RSVP (sampai 2 jam sesudahnya).
- * Dikirim sekali (Reminded_At). Jalan saat denah meja dibuka, jadi perlu layar meja terbuka.
+ * Pengingat HP untuk meja khusus RSVP, mulai 15 menit sebelum jam RSVP (sampai 2 jam sesudahnya).
+ * - Kirim sekali saat jam pengingat tiba (Reminded_At = waktu terakhir kirim).
+ * - Kalau masih ada tamu duduk di meja itu, diulang tiap 5 menit (pemicu tiap 5 menit).
+ * Jeda minimal 4 menit, supaya cek denah tiap 20 detik tidak membanjiri notif.
  * Mengembalikan teks untuk toast di layar staff yang sedang membuka denah.
  */
 function rsvpDueReminders_(tables, open) {
@@ -108,9 +115,12 @@ function rsvpDueReminders_(tables, open) {
     withLock_(function () {
       rsvpToday_(todayStr_()).forEach(function (x) {
         const m = hmToMin_(x.time);
-        if (!x.strict || x.remindedAt || nowMin < m - 15 || nowMin > m + 120) return;
+        if (!x.strict || nowMin < m - 15 || nowMin > m + 120) return;
         const o = open[idByName[x.table.trim().toLowerCase()]];
-        let body = 'Meja ' + x.table + ' khusus RSVP jam ' + x.time + ' · ' + x.guest + ' (' + x.pax + ' pax). Ingatkan tamu RSVP.';
+        const sentBefore = !!x.remindedAt;
+        if (sentBefore && !(o && Date.now() - parseStamp_(x.remindedAt) >= 4 * 60000)) return;   // sudah kirim; ulang hanya kalau masih ada tamu
+        let body = (sentBefore ? 'Pengingat ulang: ' : '') + 'Meja ' + x.table + ' khusus RSVP jam ' + x.time + ' · ' + x.guest +
+          ' (' + x.pax + ' pax). Ingatkan tamu RSVP.';
         if (o) body += '\nMeja masih dipakai: ' + (o.guest || 'tamu walk-in') + ' (' + o.pax + ' pax). Pindahkan tamu.';
         updateRow_('Reservations', x.row, { Reminded_At: nowStamp_() });
         notifyPush_('Pengingat RSVP', body, 'high');
