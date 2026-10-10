@@ -421,6 +421,7 @@ function apiCompleteOrder(token, order) {
       });
       const sameMethod = methods.every(function (m) { return m === methods[0]; });
       const method = sameMethod ? methods[0] : 'MIXED';
+      if (methods.indexOf('BARTER') >= 0 && tot.grand > 0) throw new Error('Metode Barter hanya untuk bill Rp 0 (diskon 100%).');
       if (backdate && methods.indexOf('CASH') >= 0) throw new Error('Transaksi susulan tidak boleh tunai. Catat uang tunai sebagai Kas masuk di Kas & Shift.');
 
       lines.forEach(function (l) {
