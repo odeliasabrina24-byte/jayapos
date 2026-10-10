@@ -1018,6 +1018,9 @@ function posRenderCart() {
   $('discountRow').hidden = !Pos.allowDiscount || !pay;
   $('billDiscNote').hidden = !t.billDiscount;
   $('discReasonRow').hidden = !(Pos.allowDiscount && pay && t.billDiscount);
+  const isAdminUser = !!(App.perms && App.perms.indexOf('*') >= 0);
+  $('backdateRow').hidden = !(isAdminUser && pay && Pos.ctx);
+  $('backdateFields').hidden = !($('backdateRow') && !$('backdateRow').hidden && $('backdateToggle').checked);
   $('billDiscNote').firstElementChild.textContent = Pos.billDisc.type === 'PCT' ? 'Potongan bill ' + discLabel(Pos.billDisc) : 'Potongan bill';
   $('sumBillDisc').textContent = '-' + rp(t.billDiscount);
   $('serviceRow').hidden = !(ch.servicePct > 0) || !pay;
@@ -1146,6 +1149,21 @@ function posChange(lid, act) {
   }
 }
 
+/** Data transaksi susulan dari form (null kalau tidak dicentang / tidak tampil). */
+function posBackdatePayload() {
+  const row = $('backdateFields');
+  if (!row || row.hidden || !$('backdateToggle').checked) return null;
+  return { date: $('backdateDate').value, time: $('backdateTime').value, reason: $('backdateReason').value.trim() };
+}
+function posResetBackdate() {
+  $('backdateToggle').checked = false;
+  $('backdateDate').value = ''; $('backdateTime').value = ''; $('backdateReason').value = '';
+}
+function posTodayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 /** After a takeaway sale: empty cart. */
 function posResetOrder() {
   Pos.cart = []; Pos.ref = null; Pos.billDisc = { type: Pos.billDisc.type, value: 0 }; Pos.cash = 0; Pos.payment = 'CASH';
@@ -1166,6 +1184,14 @@ function posValidate() {
   if (Pos.billDisc.type === 'PCT' && Pos.billDisc.value > 100) return 'Diskon bill maksimal 100%.';
   if (Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet) return 'Diskon bill lebih besar dari subtotal.';
   if (t.billDiscount > 0 && String(Pos.billDisc.reason || '').trim().length < 3) return 'Tulis alasan diskon bill (minimal 3 huruf).';
+  const bd = posBackdatePayload();
+  if (bd) {
+    if (!bd.date || bd.date >= posTodayStr()) return 'Tanggal susulan harus sebelum hari ini.';
+    if (!bd.time) return 'Isi jam transaksi susulan.';
+    if (bd.reason.length < 3) return 'Tulis alasan transaksi susulan (minimal 3 huruf).';
+    const hasCash = Pos.split ? Pos.split.parts.some(function (p) { return p.method === 'CASH'; }) : Pos.payment === 'CASH';
+    if (hasCash) return 'Transaksi susulan tidak boleh tunai. Catat tunai sebagai Kas masuk di Kas & Shift.';
+  }
   const lim = checkDiscLimit(t);
   if (lim) return lim;
   if (Pos.shift.required && !Pos.shift.open) return 'Shift kas belum dibuka. Tekan "Buka shift" lalu hitung uang di laci.';
@@ -1225,6 +1251,7 @@ async function posComplete() {
       clientRef: Pos.ref,
       items: Pos.ctx ? [] : posTakeawayItems(),
       billDiscount: Pos.billDisc.value ? Pos.billDisc : null,
+      backdate: posBackdatePayload(),
       applyService: Pos.applyService,
       applyTax: Pos.applyTax,
       payments: payments,
@@ -1237,6 +1264,7 @@ async function posComplete() {
       payLines: payLines
     });
     Pos.busy = false;
+    posResetBackdate();
     if (receipt.openOrder) {                 // split per item: the rest of the bill stays open
       posLoadBill(receipt.openOrder);
       Pos.ref = null; Pos.split = null; Pos.cash = 0; Pos.payment = 'CASH'; Pos.billDisc = { type: 'AMT', value: 0 };
@@ -1392,6 +1420,7 @@ function posBind() {
     posRenderCart();
     posError(Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet ? 'Diskon bill lebih besar dari subtotal.' : checkDiscLimit(t));
   });
+  $('backdateToggle').addEventListener('change', function () { posAfterChange(); });
   $('discountReason').addEventListener('input', function (e) {
     Pos.billDisc.reason = e.target.value.slice(0, 60);
     posSaveDraft();

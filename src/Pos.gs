@@ -324,6 +324,22 @@ function pickPayLines_(stored, payLines) {
   return { pay: pay, rest: rest };
 }
 
+/**
+ * Transaksi susulan (tanggal lampau). Hanya admin, hanya bill meja, wajib alasan.
+ * Tidak boleh tunai (uang tunai harus lewat Kas & Shift), supaya kas shift yang sudah tutup tidak berubah.
+ */
+function readBackdate_(b, user, openOrderId) {
+  if (!b || typeof b !== 'object') return null;
+  if (!hasPerm_(user, '*')) throw new Error('Hanya admin yang bisa input transaksi susulan.');
+  if (!openOrderId) throw new Error('Transaksi susulan hanya untuk bill meja.');
+  const date = String(b.date || ''), time = String(b.time || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) throw new Error('Isi tanggal dan jam transaksi susulan.');
+  if (date >= todayStr_()) throw new Error('Tanggal susulan harus sebelum hari ini.');
+  const reason = String(b.reason || '').trim().slice(0, 100);
+  if (reason.length < 3) throw new Error('Tulis alasan transaksi susulan (minimal 3 huruf).');
+  return { date: date, time: time, reason: reason, entered: fmt_(new Date(), 'yyyy-MM-dd HH:mm') };
+}
+
 function apiCompleteOrder(token, order) {
   return run_(function () {
     const user = requirePerm_(token, 'pos.sell');
@@ -355,7 +371,8 @@ function apiCompleteOrder(token, order) {
         return r;
       }
 
-      const shift = shiftForPayment_(settings);
+      const backdate = readBackdate_(order.backdate, user, openOrderId);
+      const shift = backdate ? null : shiftForPayment_(settings);
 
       let bill = null, lines, picked = null;
       if (openOrderId) {
@@ -404,6 +421,7 @@ function apiCompleteOrder(token, order) {
       });
       const sameMethod = methods.every(function (m) { return m === methods[0]; });
       const method = sameMethod ? methods[0] : 'MIXED';
+      if (backdate && methods.indexOf('CASH') >= 0) throw new Error('Transaksi susulan tidak boleh tunai. Catat uang tunai sebagai Kas masuk di Kas & Shift.');
 
       lines.forEach(function (l) {
         if (rdata.recipes[l.productId]) l.cost = rdata.recipes[l.productId].perServing;
@@ -411,7 +429,7 @@ function apiCompleteOrder(token, order) {
       });
 
       const now = new Date();
-      const dateKey = fmt_(now, 'yyyyMMdd');
+      const dateKey = backdate ? backdate.date.replace(/-/g, '') : fmt_(now, 'yyyyMMdd');
       const prefix = (String(settings.Tx_Prefix || 'JY').toUpperCase().replace(/[^A-Z]/g, '') || 'JY').slice(0, 5);
       const props = PropertiesService.getScriptProperties();
       const seqKey = 'TXSEQ_' + prefix + '_' + dateKey;
@@ -432,21 +450,21 @@ function apiCompleteOrder(token, order) {
       if (tot.parts.length > 1) split.push('Bagi rata ' + tot.parts.length);
       const guest = bill ? bill.guestName : cleanGuest_(order.guestName);
 
-      const dateStr = fmt_(now, 'yyyy-MM-dd');
-      const stamp = fmt_(now, 'yyyy-MM-dd HH:mm:ss');
+      const dateStr = backdate ? backdate.date : fmt_(now, 'yyyy-MM-dd');
+      const stamp = backdate ? backdate.date + ' ' + backdate.time + ':00' : fmt_(now, 'yyyy-MM-dd HH:mm:ss');
       appendObjects_('Transaction_Details', detailRows_(txId, dateStr, lines));
       appendObjects_('Transactions', [{
-        Transaction_ID: txId, Date: dateStr, Time: fmt_(now, 'HH:mm'), Cashier: user.name,
+        Transaction_ID: txId, Date: dateStr, Time: backdate ? backdate.time : fmt_(now, 'HH:mm'), Cashier: user.name,
         Subtotal: tot.subtotal, Discount: tot.discount, Grand_Total: tot.grand, Payment_Method: method,
         Amount_Paid: paidTotal, Change: changeTotal, Status: 'COMPLETED', Cashier_ID: user.id,
-        Timestamp: stamp, Client_Ref: clientRef, Outlet_ID: settings.Outlet_ID || '', Notes: '',
+        Timestamp: stamp, Client_Ref: clientRef, Outlet_ID: settings.Outlet_ID || '', Notes: backdate ? 'SUSULAN (diinput ' + backdate.entered + ' oleh ' + user.name + '): ' + backdate.reason : '',
         Order_Type: bill ? 'DINE_IN' : 'TAKEAWAY', Table_Name: bill ? bill.tableName : taNo,
         Pax: bill ? (priorPaid ? 0 : bill.pax) : '',
         Service_Charge: tot.service, Tax: tot.tax, Order_ID: bill ? bill.id : '',
         Item_Discount: tot.itemDiscount, Bill_Discount: tot.billDiscount, Bill_Discount_Info: discountInfo_(billDisc) + (billDiscReason ? ' · ' + billDiscReason : ''),
         Rounding: tot.rounding, Void_Reason: '', Void_By: '', Void_At: '',
         Guest_Name: guest, Shift_ID: shift ? shift.id : '', Split_Info: split.join(' · '),
-        Duration_Min: bill && bill.openedMs ? Math.max(0, Math.round((now.getTime() - bill.openedMs) / 60000)) : ''
+        Duration_Min: !backdate && bill && bill.openedMs ? Math.max(0, Math.round((now.getTime() - bill.openedMs) / 60000)) : ''
       }]);
       appendObjects_('Payments', tot.parts.map(function (p, i) {
         return { Payment_ID: txId + '-' + (i + 1), Transaction_ID: txId, Seq: i + 1, Date: dateStr, Method: p.method,
