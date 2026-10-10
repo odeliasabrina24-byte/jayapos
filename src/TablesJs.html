@@ -24,6 +24,7 @@ async function floorLoad(silent) {
     const d = await api('apiGetFloor', App.token);
     Floor.data = d;
     Floor.offset = Date.now() - d.serverNow;
+    (d.alerts || []).forEach(function (a) { toast(a, 'warn'); });
     if (!Floor.area || d.areas.indexOf(Floor.area) < 0) {
       Floor.area = d.areas.filter(function (a) { return d.tables.some(function (t) { return t.area === a; }); })[0] || d.areas[0] || 'Indoor';
     }
@@ -115,7 +116,7 @@ async function floorTap(tid) {
   }
   const r = floorRsvp(t);
   openForm({
-    title: 'Terima tamu di ' + t.name,
+    title: 'Terima tamu di ' + t.name + (r && r.strict ? ' · khusus RSVP ' + r.time : ''),
     submitLabel: 'Buka meja',
     fields: [{ name: 'pax', label: 'Total pax', type: 'number', min: 1, max: 99, value: r ? r.pax : Math.min(t.seats || 2, 2),
                help: t.seats + ' kursi di meja ini' },
@@ -125,6 +126,7 @@ async function floorTap(tid) {
       const order = await api('apiOpenTable', App.token, t.id, v.pax, v.guest.slice(0, 40));
       if (order.alreadyOpen) toast(t.name + ' baru saja dibuka oleh ' + order.openedBy + '. Ini bill-nya.', 'warn');
       posEnterTable(order);
+      if (r && !order.alreadyOpen) posPrefillPreorder(r.preorder);
     }
   });
 }

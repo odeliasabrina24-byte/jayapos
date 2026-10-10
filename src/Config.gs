@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.37';
+const APP_VERSION = '3.4.38';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -319,9 +319,9 @@ const SCHEMA = {
   // Reservasi (RSVP) tamu: jam datang, jumlah orang, meja, dan pesanan awal (opsional).
   Reservations: {
     headers: ['Reservation_ID', 'Date', 'Time', 'Guest_Name', 'Pax', 'Table_Name', 'Pesanan_Awal', 'Notes', 'Status',
-              'Created_By', 'Created_At', 'Updated_At'],
+              'Created_By', 'Created_At', 'Updated_At', 'Strict', 'Preorder_JSON', 'Reminded_At'],
     text: ['Reservation_ID', 'Date', 'Time', 'Guest_Name', 'Table_Name', 'Pesanan_Awal', 'Notes', 'Status', 'Created_By',
-           'Created_At', 'Updated_At']
+           'Created_At', 'Updated_At', 'Strict', 'Preorder_JSON', 'Reminded_At']
   },
   Notifications: {
     headers: ['Notification_ID', 'Timestamp', 'Type', 'Title', 'Message', 'Reference_ID', 'Table_Name', 'Amount', 'Reason',

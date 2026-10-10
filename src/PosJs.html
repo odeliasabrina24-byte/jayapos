@@ -1099,6 +1099,21 @@ function posError(msg) {
 }
 
 /* ---------- Cart actions ---------- */
+/** Pre-order RSVP masuk sebagai baris baru (belum tersimpan). Tekan "Simpan ke meja" untuk kirim ke dapur. */
+function posPrefillPreorder(list) {
+  if (!list || !list.length || Pos.cart.some(function (l) { return l.round; })) return;   // bill sudah punya pesanan: jangan dobel
+  const skipped = [];
+  list.forEach(function (x) {
+    const p = Pos.byId[x.id];
+    if (!p || p.soldOut) { skipped.push(x.name); return; }
+    Pos.cart.push({ lid: newLid(), id: p.id, name: p.name, price: p.price, qty: x.qty || 1, disc: null, note: '', grp: p.group || '',
+                    mods: [], round: 0, at: '', by: '', from: '', savedQty: 0 });
+  });
+  posAfterChange();
+  toast('Pre-order RSVP dimuat. Cek jumlahnya, lalu tekan “Simpan ke meja” untuk kirim ke dapur.' +
+    (skipped.length ? ' Tidak bisa dimuat (habis/tidak aktif): ' + skipped.join(', ') : ''), skipped.length ? 'warn' : 'ok');
+}
+
 function posAdd(id) {
   const p = Pos.byId[id];
   if (!p) return;

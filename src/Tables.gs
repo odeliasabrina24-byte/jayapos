@@ -124,7 +124,8 @@ function floorData_(user) {
       return { id: t.id, name: t.name, area: t.area, seats: t.seats, shape: t.shape, x: t.x, y: t.y, w: t.w, h: t.h };
     }),
     open: open,
-    reserved: rsvpReservedMap_(),
+    reserved: rsvpReservedMap_(tables, open),
+    alerts: rsvpDueReminders_(tables, open),
     canServe: hasPerm_(user, 'tables.serve'),
     canEditLayout: hasPerm_(user, 'tables.layout'),
     serverNow: Date.now()

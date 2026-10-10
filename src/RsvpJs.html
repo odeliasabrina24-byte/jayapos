@@ -37,10 +37,13 @@ function rsvpRender() {
   html += Rsvp.rows.length ? Rsvp.rows.map(function (r) {
     const items = r.items ? r.items.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
       .map(function (s) { return '<div>' + esc(s) + '</div>'; }).join('') : '<div class="muted">Belum ada pesanan awal</div>';
+    const pre = r.preorder && r.preorder.length ? '<div class="small"><b>Pre-order ke dapur saat tamu datang:</b> ' +
+      r.preorder.map(function (p) { return p.qty + '× ' + esc(p.name); }).join(', ') + '</div>' : '';
     return '<div class="tx">' +
       '<div class="tx-top"><b>' + esc(r.time) + ' · ' + esc(r.guest) + '</b><span class="tag">' + r.pax + ' pax</span></div>' +
-      '<div class="tx-meta">' + (r.table ? '<span class="tag table-tag">' + esc(r.table) + '</span>' : '<span class="tag">Meja belum ditentukan</span>') + '</div>' +
-      '<div class="small">' + items + '</div>' +
+      '<div class="tx-meta">' + (r.table ? '<span class="tag table-tag">' + esc(r.table) + '</span>' : '<span class="tag">Meja belum ditentukan</span>') +
+      (r.strict ? '<span class="tag">Khusus RSVP</span>' : '') + '</div>' +
+      '<div class="small">' + items + '</div>' + pre +
       (r.notes ? '<div class="small muted">Catatan: ' + esc(r.notes) + '</div>' : '') +
       '<div class="toolbar"><button class="link-btn small" type="button" data-act="edit" data-id="' + esc(r.id) + '">Ubah</button>' +
       '<button class="link-btn small" type="button" data-act="cancel" data-id="' + esc(r.id) + '">Batalkan</button></div>' +
@@ -57,21 +60,36 @@ function rsvpRender() {
   });
 }
 
-function rsvpForm(r) {
-  openForm({
-    title: r ? 'Ubah RSVP' : 'RSVP baru',
-    fields: [
+async function rsvpForm(r) {
+  let menu = [];
+  try { menu = await api('apiGetRsvpMenu', App.token); } catch (e) { menu = []; }
+  const preChosen = r ? r.preorder.map(function (p) { return p.id; }) : [];
+  const fields = [
       { name: 'date', label: 'Tanggal', value: r ? r.date : Rsvp.date, help: 'Format 2026-10-11' },
       { name: 'time', label: 'Jam', value: r ? r.time : '19:00', help: 'Format 19:00' },
       { name: 'guest', label: 'Nama tamu', value: r ? r.guest : '' },
       { name: 'pax', label: 'Jumlah orang (pax)', type: 'number', value: r ? r.pax : 2 },
       { name: 'table', label: 'Meja (opsional)', value: r ? r.table : '', help: 'Contoh: T1 atau O3. Boleh dikosongkan.' },
       { name: 'items', label: 'Pesanan awal (opsional)', value: r ? r.items : '', help: 'Pisahkan dengan koma, contoh: 2x Babi Kecap, 1x Iced Tea' },
-      { name: 'notes', label: 'Catatan (opsional)', value: r ? r.notes : '' }
-    ],
+      { name: 'notes', label: 'Catatan (opsional)', value: r ? r.notes : '' },
+      { name: 'strict', label: 'Meja khusus RSVP', type: 'checkbox', value: r ? r.strict : false,
+        help: 'Meja ini ditandai RSVP sejak pagi di denah, dan staff diingatkan 15 menit sebelum jam RSVP. Isi meja dulu.' }
+    ];
+  if (menu.length) {
+    fields.push({ name: 'preorder', label: 'Pre-order (opsional)', type: 'multi', value: preChosen,
+      options: menu.map(function (p) { return { value: p.id, label: p.name }; }),
+      help: 'Dimuat ke bill saat tamu datang. Jumlah bisa diubah di kasir sebelum disimpan ke dapur.' });
+  }
+  openForm({
+    title: r ? 'Ubah RSVP' : 'RSVP baru',
+    fields: fields,
     submitLabel: 'Simpan',
     onSubmit: async function (v) {
-      await api('apiSaveRsvp', App.token, Object.assign({ id: r ? r.id : '' }, v));
+      const qtyOf = {};
+      if (r) r.preorder.forEach(function (p) { qtyOf[p.id] = p.qty; });
+      const data = Object.assign({ id: r ? r.id : '' }, v);
+      data.preorder = (v.preorder || []).map(function (id) { return { id: id, qty: qtyOf[id] || 1 }; });
+      await api('apiSaveRsvp', App.token, data);
       toast('RSVP disimpan.');
       Rsvp.date = v.date;
       rsvpLoad();
