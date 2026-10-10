@@ -72,11 +72,13 @@ function floorRender() {
   const tables = floorTables();
   $('floor').innerHTML = tables.length ? tables.map(function (t) {
     const o = !Floor.editing && d.open[t.id];
-    const cls = 'tbl' + (t.shape === 'ROUND' ? ' round' : '') + (o ? ' busy' : '');
-    const sub = o ? o.pax + ' pax · ' + minutesOpen(o) : t.seats + ' kursi';
+    const r = !Floor.editing && !o && floorRsvp(t);
+    const cls = 'tbl' + (t.shape === 'ROUND' ? ' round' : '') + (o ? ' busy' : '') + (r ? ' rsvp' : '');
+    const sub = o ? o.pax + ' pax · ' + minutesOpen(o) : r ? r.pax + ' pax · RSVP ' + r.time : t.seats + ' kursi';
     return '<button class="' + cls + '" type="button" data-tid="' + esc(t.id || t.tmp) + '" style="left:' + t.x + '%;top:' + t.y +
       '%;width:' + t.w + '%;height:' + t.h + '%"><span class="tbl-name">' + esc(t.name) + '</span>' +
-      (o && o.guest ? '<span class="tbl-guest">' + esc(o.guest) + '</span>' : '') + '<span class="tbl-sub">' + sub + '</span>' +
+      (o && o.guest ? '<span class="tbl-guest">' + esc(o.guest) + '</span>' : r ? '<span class="tbl-guest">' + esc(r.guest) + '</span>' : '') +
+      '<span class="tbl-sub">' + sub + '</span>' +
       (o ? '<span class="tbl-amt">' + (o.items ? 'Rp ' + fmtShort(o.subtotal) : 'belum ada item') + '</span>' : '') +
       (o && o.ready ? '<span class="tbl-ready">SIAP ' + o.ready + '</span>' : '') + '</button>';
   }).join('') : '<div class="floor-empty">' + (Floor.editing ? 'Belum ada meja di area ini. Ketuk “+ Tambah meja”.' : 'Tidak ada meja di area ini.') + '</div>';
@@ -93,6 +95,11 @@ function floorRender() {
 }
 
 /* ---------- Serving ---------- */
+function floorRsvp(t) {
+  const d = Floor.data;
+  return (d && d.reserved && d.reserved[String(t.name || '').trim().toLowerCase()]) || null;
+}
+
 async function floorTap(tid) {
   const d = Floor.data;
   const t = d.tables.filter(function (x) { return x.id === tid; })[0];
@@ -106,12 +113,13 @@ async function floorTap(tid) {
     finally { showLoading(false); }
     return;
   }
+  const r = floorRsvp(t);
   openForm({
     title: 'Terima tamu di ' + t.name,
     submitLabel: 'Buka meja',
-    fields: [{ name: 'pax', label: 'Total pax', type: 'number', min: 1, max: 99, value: Math.min(t.seats || 2, 2),
+    fields: [{ name: 'pax', label: 'Total pax', type: 'number', min: 1, max: 99, value: r ? r.pax : Math.min(t.seats || 2, 2),
                help: t.seats + ' kursi di meja ini' },
-             { name: 'guest', label: 'Nama tamu (opsional)', value: '', help: 'Contoh: Pak Budi. Muncul di denah, di layar dapur dan di struk.' }],
+             { name: 'guest', label: 'Nama tamu (opsional)', value: r ? r.guest : '', help: 'Contoh: Pak Budi. Muncul di denah, di layar dapur dan di struk.' }],
     onSubmit: async function (v) {
       if (!Number.isInteger(v.pax) || v.pax < 1 || v.pax > 99) throw new Error('Pax harus 1 sampai 99.');
       const order = await api('apiOpenTable', App.token, t.id, v.pax, v.guest.slice(0, 40));

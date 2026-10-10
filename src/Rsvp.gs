@@ -30,6 +30,32 @@ function rsvpRowToObj_(r) {
   };
 }
 
+function hmToMin_(s) {
+  const p = String(s || '').split(':');
+  return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
+}
+
+/**
+ * RSVP hari ini yang harus tampil di denah meja: mulai 30 menit sebelum jam RSVP,
+ * dan berhenti 2 jam setelah jam RSVP (kalau tamu tidak datang). Key = nama meja (huruf kecil).
+ * Meja yang sudah punya bill terbuka tetap tampil sebagai bill (lihat floorData_).
+ */
+function rsvpReservedMap_() {
+  const nowMin = hmToMin_(fmt_(new Date(), 'HH:mm'));
+  const d = todayStr_();
+  const out = {};
+  readTable_('Reservations').rows.map(rsvpRowToObj_)
+    .filter(function (x) { return x.date === d && x.status !== 'CANCELLED' && x.table; })
+    .sort(function (a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); })
+    .forEach(function (x) {
+      const m = hmToMin_(x.time);
+      if (nowMin < m - 30 || nowMin > m + 120) return;
+      const key = x.table.trim().toLowerCase();
+      if (!out[key]) out[key] = { id: x.id, guest: x.guest, pax: x.pax, time: x.time, items: x.items };
+    });
+  return out;
+}
+
 function apiGetRsvp(token, date) {
   return run_(function () {
     requirePerm_(token, 'rsvp.manage');
