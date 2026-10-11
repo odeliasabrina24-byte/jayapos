@@ -422,6 +422,10 @@ function apiCompleteOrder(token, order) {
       const sameMethod = methods.every(function (m) { return m === methods[0]; });
       const method = sameMethod ? methods[0] : 'MIXED';
       if (methods.indexOf('BARTER') >= 0 && tot.grand > 0) throw new Error('Metode Barter hanya untuk bill Rp 0 (diskon 100%).');
+      const komp = methods.indexOf('KOMPLIMEN') >= 0;
+      if (komp && (methods.length > 1 || tot.grand > 0 || !billDiscReason || billDiscReason.length < 3)) {
+        throw new Error('Komplimen hanya untuk bill Rp 0 (diskon 100%) dengan alasan, dan tidak bisa dibagi.');
+      }
       if (backdate && methods.indexOf('CASH') >= 0) throw new Error('Transaksi susulan tidak boleh tunai. Catat uang tunai sebagai Kas masuk di Kas & Shift.');
 
       lines.forEach(function (l) {
@@ -462,7 +466,7 @@ function apiCompleteOrder(token, order) {
         Order_Type: bill ? 'DINE_IN' : 'TAKEAWAY', Table_Name: bill ? bill.tableName : taNo,
         Pax: bill ? (priorPaid ? 0 : bill.pax) : '',
         Service_Charge: tot.service, Tax: tot.tax, Order_ID: bill ? bill.id : '',
-        Item_Discount: tot.itemDiscount, Bill_Discount: tot.billDiscount, Bill_Discount_Info: discountInfo_(billDisc) + (billDiscReason ? ' · ' + billDiscReason : ''),
+        Item_Discount: tot.itemDiscount, Bill_Discount: tot.billDiscount, Bill_Discount_Info: (komp ? 'KOMPLIMEN · ' : '') + discountInfo_(billDisc) + (billDiscReason ? ' · ' + billDiscReason : ''),
         Rounding: tot.rounding, Void_Reason: '', Void_By: '', Void_At: '',
         Guest_Name: guest, Shift_ID: shift ? shift.id : '', Split_Info: split.join(' · '),
         Duration_Min: !backdate && bill && bill.openedMs ? Math.max(0, Math.round((now.getTime() - bill.openedMs) / 60000)) : ''

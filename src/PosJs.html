@@ -1201,6 +1201,14 @@ function posResetOrder() {
   posRenderAll();
 }
 
+/* Komplimen: bill otomatis diskon 100% (alasan tetap wajib). Pindah ke metode lain membatalkan diskon itu lagi. */
+function posSetPayment(k) {
+  const was = Pos.payment;
+  Pos.payment = k;
+  if (k === 'KOMPLIMEN') Pos.billDisc = { type: 'PCT', value: 100, reason: Pos.billDisc.reason || '' };
+  else if (was === 'KOMPLIMEN' && Pos.billDisc.type === 'PCT' && Pos.billDisc.value === 100) Pos.billDisc = { type: 'AMT', value: 0 };
+}
+
 /* ---------- Complete order ---------- */
 function posValidate() {
   const t = posTotals();
@@ -1208,6 +1216,10 @@ function posValidate() {
   if (Pos.billDisc.type === 'PCT' && Pos.billDisc.value > 100) return 'Diskon bill maksimal 100%.';
   if (Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet) return 'Diskon bill lebih besar dari subtotal.';
   if (t.billDiscount > 0 && String(Pos.billDisc.reason || '').trim().length < 3) return 'Tulis alasan diskon bill (minimal 3 huruf).';
+  if (posMethods().indexOf('KOMPLIMEN') >= 0) {
+    if (Pos.split || posMethods().length > 1) return 'Komplimen tidak bisa dibagi atau digabung.';
+    if (t.grand > 0) return 'Komplimen hanya untuk bill Rp 0 (diskon 100%).';
+  }
   const bd = posBackdatePayload();
   if (bd) {
     if (!bd.date || bd.date >= posTodayStr()) return 'Tanggal susulan harus sebelum hari ini.';
@@ -1382,7 +1394,7 @@ function posBind() {
   $('payMethods').addEventListener('click', function (e) {
     const b = e.target.closest('[data-pay]');
     if (!b) return;
-    Pos.payment = b.dataset.pay;
+    posSetPayment(b.dataset.pay);
     posAfterChange();
   });
   $('payBanner').addEventListener('click', function (e) {
