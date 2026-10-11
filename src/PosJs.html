@@ -1106,7 +1106,7 @@ function posPrefillPreorder(list) {
   list.forEach(function (x) {
     const p = Pos.byId[x.id];
     if (!p || p.soldOut) { skipped.push(x.name); return; }
-    Pos.cart.push({ lid: newLid(), id: p.id, name: p.name, price: p.price, qty: x.qty || 1, disc: null, note: '', grp: p.group || '',
+    Pos.cart.push({ lid: newLid(), id: p.id, name: p.name, price: p.price, qty: x.qty || 1, disc: null, note: x.note || '', grp: p.group || '',
                     mods: [], round: 0, at: '', by: '', from: '', savedQty: 0 });
   });
   posAfterChange();

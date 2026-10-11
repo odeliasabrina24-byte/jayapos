@@ -60,7 +60,7 @@ function sanitizePreorder_(list) {
     const p = byId[id];
     if (!p || out.length >= 30) return;
     const qty = Math.max(1, Math.min(99, parseInt(x.qty, 10) || 1));
-    out.push({ id: id, name: p.name, qty: qty });
+    out.push({ id: id, name: p.name, qty: qty, note: cleanText_(x.note, 100) });
   });
   return out;
 }
