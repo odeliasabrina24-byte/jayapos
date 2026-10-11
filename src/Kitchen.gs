@@ -244,7 +244,7 @@ function apiServeRound(token, orderId, round) {
             const at = String(nowStamp_()).slice(11, 16);
             i.srv = (Number(i.srv) || 0) + n;
             i.srvAt = at;
-            i.srvLog = (Array.isArray(i.srvLog) ? i.srvLog : []).concat([{ n: n, at: at }]);   // every delivery keeps its own time
+            i.srvLog = (Array.isArray(i.srvLog) ? i.srvLog : []).concat([{ n: n, at: at, by: user.name }]);   // every delivery keeps its own time and who sent it
             changed = true;
           }
         });
@@ -277,7 +277,7 @@ function apiServeItem(token, ticketId, itemIdx) {
       const at = String(nowStamp_()).slice(11, 16);
       item.srv = (Number(item.srv) || 0) + n;
       item.srvAt = at;
-      item.srvLog = (Array.isArray(item.srvLog) ? item.srvLog : []).concat([{ n: n, at: at }]);
+      item.srvLog = (Array.isArray(item.srvLog) ? item.srvLog : []).concat([{ n: n, at: at, by: user.name }]);
       saveTicketItems_(r, data, '');
       audit_(user, 'SERVED', 'Order', String(r.Order_ID || ''), { round: Number(r.Round) || 0, item: item.name, n: n });
       return { ticketId: tid, idx: idx, n: n, name: String(item.name || '') };

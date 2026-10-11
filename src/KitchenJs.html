@@ -412,7 +412,7 @@ function serveAllHtml(rounds) {
   return order.map(function (oid) {
     const o = byOrder[oid];
     const rs = o.rounds.map(function (r) {
-      return '<div class="sv-round"><div class="sv-rhead"><b>Pesanan ' + r.round + '</b> · masuk ' + esc(r.time) +
+      return '<div class="sv-round"><div class="sv-rhead"><b>Pesanan ' + r.round + '</b> · masuk ' + esc(r.time) + (r.by ? ' · dipesan oleh <b>' + esc(r.by) + '</b>' : '') +
         (r.readyStamped ? ' · siap ' + esc(r.readyAt) : '') + '</div>' + r.lines.map(serveAllLine).join('') + '</div>';
     }).join('');
     return '<div class="ticket sv-table"><div class="tk-head"><div><span class="tk-table">' + esc(o.table || '-') + '</span>' +
@@ -436,7 +436,7 @@ function serveAllLine(l) {
     now = parts.join(' · ') || '<span class="muted">' + SERVE_STAT[l.status] + '</span>';
   }
   const log = (l.serves || []).filter(function (s) { return s.n > 0; })
-    .map(function (s) { return '<span class="sv-chip">✓ ' + s.n + ' diantar ' + esc(s.at || '-') + '</span>'; }).join('');
+    .map(function (s) { return '<span class="sv-chip">✓ ' + s.n + ' diantar ' + esc(s.at || '-') + (s.by ? ' oleh ' + esc(s.by) : '') + '</span>'; }).join('');
   return '<div class="sv-line' + (l.status === 'SERVED' ? ' served' : '') + '">' +
     '<div class="sv-main">' + serveCheck(l) + '<span class="sv-qty">' + l.qty + '×</span><span class="sv-name">' + esc(l.name) + '</span>' +
     '<span class="sv-station">' + (l.st === 'FOOD' ? 'Dapur' : 'Bar') + '</span></div>' +
