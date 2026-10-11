@@ -279,7 +279,7 @@ function go(id) {
     App.view = 'home';
     $('pageTitle').textContent = 'Beranda';
     $('view-home').hidden = false;
-    homeFallback();
+    Views.home();   // Chef: Beranda dapur (Layar Dapur, Siap diantar); others: fallback
     return;
   }
   const item = App.nav.filter(function (n) { return n.id === id; })[0];
