@@ -59,6 +59,7 @@ async function homeLoad() {
   if (!Home.data) $('homeBody').innerHTML = '<div class="empty">Memuat…</div>';
   try {
     Home.data = await api('apiGetHome', App.token);
+    await homeRsvpCount();
     if (App.view !== 'home') return;
     homeRender();
     const d = Home.data;
@@ -100,6 +101,7 @@ function homeRender() {
   const readyPortions = (kb.RDY_FOOD || 0) + (kb.RDY_BAR || 0);
   const readyBig = kb.RDY_FOOD == null && kb.RDY_BAR == null ? kb.READY : readyPortions;
   if (hasNav('kitchen')) big.push(homeLive('kitchen', 'Layar Dapur', kb.FOOD, 'tiket menunggu dimasak', 'Antrean dapur kosong', 'green'));
+  if (hasNav('rsvp')) big.push(homeLive('rsvp', 'RSVP hari ini', Home.rsvpN, 'tamu RSVP' + (Home.rsvpNext ? ' · pertama jam ' + Home.rsvpNext : ''), 'Tidak ada RSVP hari ini', 'green'));
   if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', readyBig, '', 'Belum ada yang siap', 'green', readyLines.join('<br>')));
   // Layar Barista = minuman yang belum dibuat, sama dengan isi layar dan lencana "Bar N"
   if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR,
@@ -121,6 +123,16 @@ function homeRender() {
     '<div class="home-tiles">' + tiles.join('') + '</div>';
 }
 
+/** Jumlah RSVP hari ini untuk tombol Beranda (kasir/admin dan role tanpa penjualan). */
+async function homeRsvpCount() {
+  if (!hasNav('rsvp')) return;
+  try {
+    const r = await api('apiGetRsvp', App.token);
+    Home.rsvpN = r.rows.length;
+    Home.rsvpNext = r.rows.length ? r.rows[0].time : '';
+  } catch (e) { /* tampil dengan angka terakhir */ }
+}
+
 /** Role tanpa Beranda penjualan tetapi punya modul live (dapur, siap diantar, barista, RSVP). */
 function homeHasLive() {
   return hasNav('kitchen') || hasNav('serve') || hasNav('bar_orders') || hasNav('rsvp');
@@ -138,13 +150,7 @@ async function homeKitchenLoad() {
   if (hasNav('kitchen') || hasNav('serve') || hasNav('bar_orders')) {
     try { if (typeof kitBadgeLoad === 'function') await kitBadgeLoad(); } catch (e) { /* tampil dengan angka terakhir */ }
   }
-  if (hasNav('rsvp')) {
-    try {
-      const r = await api('apiGetRsvp', App.token);
-      Home.rsvpN = r.rows.length;
-      Home.rsvpNext = r.rows.length ? r.rows[0].time : '';
-    } catch (e) { /* tampil dengan angka terakhir */ }
-  }
+  await homeRsvpCount();
   if (App.view === 'home') homeKitchenDraw();
 }
 
