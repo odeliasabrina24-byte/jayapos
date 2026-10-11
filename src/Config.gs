@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.49';
+const APP_VERSION = '3.4.50';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -71,7 +71,7 @@ const ROLE_PERMISSIONS = {
                'shift.view', 'cash.confirm', 'rsvp.manage'],
   CASHIER:    ['pos.sell', 'pos.order', 'tables.serve', 'tables.layout', 'history.view_recent', 'receipt.view', 'pos.void',
                'shift.manage', 'menu.soldout', 'rsvp.manage'],
-  CHEF:       ['kitchen.food', 'menu.soldout', 'recipes.food', 'cogs.food', 'stock.food', 'ingredients.food', 'rsvp.manage'],
+  CHEF:       ['kitchen.food', 'tables.serve', 'menu.soldout', 'recipes.food', 'cogs.food', 'stock.food', 'ingredients.food', 'rsvp.manage'],
   BARISTA:    ['kitchen.bar', 'menu.soldout', 'recipes.beverage', 'cogs.beverage', 'stock.beverage', 'ingredients.beverage'],
   PURCHASING: ['suppliers.manage', 'suppliers.view', 'purchasing.manage', 'purchasing.view', 'ingredients.purchasing']
 };

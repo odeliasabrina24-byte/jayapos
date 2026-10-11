@@ -135,6 +135,7 @@ function homeKitchenDraw() {
   const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
   const big = [];
   if (hasNav('kitchen')) big.push(homeLive('kitchen', 'Layar Dapur', kb.FOOD, 'tiket menunggu dimasak', 'Antrean dapur kosong', 'green'));
+  if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', kb.READY, '', 'Belum ada yang siap', 'green'));
   if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR, 'minuman dari ' + (kb.BAR_TABLES || 0) + ' meja', 'Antrean minuman kosong', 'green'));
   $('homeBody').innerHTML = '<div class="home-hello"><h2>Halo, ' + esc(App.user.name) + '</h2></div>' +
     (big.length ? '<div class="home-bigs">' + big.join('') + '</div>' : '');
