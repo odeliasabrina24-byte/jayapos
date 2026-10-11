@@ -883,16 +883,20 @@ function posRenderAll() { posRenderCtx(); posRenderCats(); posRenderProducts(); 
 function posRenderCtx() {
   const canTables = App.nav.some(function (n) { return n.id === 'tables'; });
   if (!Pos.ctx) {
-    const platName = Pos.payment === 'GRABFOOD' ? 'GrabFood' : (Pos.payment === 'GOFOOD' ? 'GoFood' : '');
-    const platChip = platName
-      ? '<button class="ctx-chip' + (Pos.platformRef ? ' plain' : '') + '" type="button" data-ctx="platref">' + platName + ' · ' +
-        (Pos.platformRef ? '№ ' + esc(Pos.platformRef) + ' ✎' : '⚠ + nomor pesanan (wajib)') + '</button>'
-      : '';
-    $('posCtx').innerHTML = platChip + '<button class="ctx-chip plain" type="button" data-ctx="guest">Takeaway' + (Pos.guest ? ' · ' + esc(Pos.guest) : ' · + nama tamu') + '</button>' +
-      '<button class="ctx-chip' + (Pos.payment === 'GRABFOOD' ? ' on' : '') + '" type="button" data-ctx="ch-GRABFOOD">' + (Pos.payment === 'GRABFOOD' ? '✓ ' : '') + 'GrabFood</button>' +
-      '<button class="ctx-chip' + (Pos.payment === 'GOFOOD' ? ' on' : '') + '" type="button" data-ctx="ch-GOFOOD">' + (Pos.payment === 'GOFOOD' ? '✓ ' : '') + 'GoFood</button>' +
-      (canTables ? '<button class="btn small" type="button" data-ctx="tables">Makan di tempat: pilih meja ›</button>' : '');
-    $('cartTitle').textContent = 'Pesanan' + (Pos.guest ? ' · ' + Pos.guest : '');
+    // Empat pilihan setara: Takeaway, Makan di tempat, GrabFood, GoFood
+    const plat = Pos.payment === 'GRABFOOD' ? 'GRABFOOD' : (Pos.payment === 'GOFOOD' ? 'GOFOOD' : '');
+    const platName = plat === 'GRABFOOD' ? 'GrabFood' : (plat === 'GOFOOD' ? 'GoFood' : '');
+    const chip = function (act, active, label) {
+      return '<button class="ctx-opt' + (active ? ' on' : '') + '" type="button" data-ctx="' + act + '">' + esc(label) + '</button>';
+    };
+    const platLabel = plat ? platName + (Pos.platformRef ? ' · № ' + Pos.platformRef : ' · ⚠ nomor pesanan') : '';
+    $('posCtx').innerHTML = '<div class="ctx-grid">' +
+      chip('takeaway', !plat, 'Takeaway' + (!plat && Pos.guest ? ' · ' + Pos.guest : ' · + nama tamu')) +
+      (canTables ? chip('tables', false, 'Makan di tempat') : '') +
+      chip('ch-GRABFOOD', plat === 'GRABFOOD', plat === 'GRABFOOD' ? platLabel : 'GrabFood') +
+      chip('ch-GOFOOD', plat === 'GOFOOD', plat === 'GOFOOD' ? platLabel : 'GoFood') +
+      '</div>';
+    $('cartTitle').textContent = 'Pesanan' + (plat ? ' · ' + platName : '') + (!plat && Pos.guest ? ' · ' + Pos.guest : '');
     return;
   }
   const c = Pos.ctx;
@@ -1397,7 +1401,19 @@ function posBind() {
     if (a === 'tables') go('tables');
     else if (a === 'back') posBackToTables();
     else if (a === 'guest') posEditGuest();
+    else if (a === 'takeaway') {                  // belum takeaway: pindah ke takeaway; sudah takeaway: ubah nama tamu
+      if (Pos.payment === 'GRABFOOD' || Pos.payment === 'GOFOOD') { posSetPayment('CASH'); posAfterChange(); }
+      else posEditGuest();
+    }
     else if (a === 'platref') posEditPlatformRef();
+    else if (a === 'ch-GRABFOOD' || a === 'ch-GOFOOD') {     // pesanan online: harga +Delivery_Markup
+      const k = a.slice(3);
+      if (Pos.payment === k) { posEditPlatformRef(); return; }   // sudah dipilih: ubah nomor pesanan
+      posSetPayment(k);
+      posAfterChange();
+      toast('Pesanan ' + (k === 'GRABFOOD' ? 'GrabFood' : 'GoFood') + ': harga online. Isi nomor pesanan.');
+      if (!Pos.platformRef) posEditPlatformRef();
+    }
     else if (a === 'more') posMore();
     else if (a === 'ch-GRABFOOD' || a === 'ch-GOFOOD') {          // pesanan online: harga +Delivery_Markup, nomor pesanan saat bayar
       const k = a.slice(3);
