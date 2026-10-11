@@ -180,7 +180,7 @@ function apiGetRsvpMenu(token) {
   return run_(function () {
     requirePerm_(token, 'rsvp.manage');
     return {
-      menu: getActiveProducts_().map(function (p) { return { id: p.id, name: p.name }; }),
+      menu: getActiveProducts_().map(function (p) { return { id: p.id, name: p.name, category: p.category || 'Lainnya' }; }),
       tables: rsvpTableNames_()
     };
   });

@@ -1,3 +1,25 @@
+<style>
+.pre-sheet{position:fixed;inset:0;background:rgba(20,10,5,.45);z-index:60;display:flex;align-items:flex-end;justify-content:center}
+.pre-box{background:#fff;color:#2b1d16;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px;box-sizing:border-box}
+.pre-head{display:flex;justify-content:space-between;align-items:center}
+.pre-head b{font-size:1.15em}
+.pre-x{min-width:44px;min-height:44px;border:0;background:none;font-size:1.6em;cursor:pointer}
+.pre-sec{font-weight:700;margin:14px 0 6px}
+.pre-row{border:1px solid #e3d8cc;border-radius:12px;padding:10px;margin-bottom:8px}
+.pre-row-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pre-name{font-weight:700}
+.pre-step{display:flex;align-items:center;gap:6px}
+.pre-step button{min-width:48px;min-height:48px;border-radius:10px;border:1px solid #c9b8a8;background:#fbf8f5;font-size:1.4em;font-weight:700;cursor:pointer}
+.pre-step span{min-width:36px;text-align:center;font-weight:800;font-size:1.2em}
+.pre-note{width:100%;margin-top:8px;min-height:44px;box-sizing:border-box;padding:10px;border:1px solid #c9b8a8;border-radius:10px;font:inherit}
+.pre-del{border:0;background:none;color:#b3261e;font-weight:700;min-height:44px;padding:0 6px;cursor:pointer}
+.pre-menu{display:flex;flex-wrap:wrap;gap:8px}
+.pre-add{min-height:44px;padding:8px 14px;border-radius:999px;border:1px solid #c9b8a8;background:#fff;font:inherit;cursor:pointer}
+.pre-add b{color:#b3261e}
+.pre-foot{display:flex;gap:8px;margin-top:16px;position:sticky;bottom:0;background:#fff;padding-top:8px}
+.pre-foot button{flex:1;min-height:52px;border-radius:12px;font:inherit;font-weight:700;cursor:pointer;border:1px solid #c9b8a8;background:#fff}
+.pre-foot .pre-primary{background:#b3261e;color:#fff;border-color:transparent}
+</style>
 <script>
 /* ================= RsvpJs: daftar RSVP (tamu yang sudah pesan meja) ================= */
 
@@ -76,75 +98,121 @@ async function rsvpForm(r) {
   const menu = opts.menu || [];
   const tableOpts = [{ value: '', label: 'Belum ditentukan' }].concat((opts.tables || []).map(function (n) { return { value: n, label: n }; }));
   if (r && r.table && (opts.tables || []).indexOf(r.table) < 0) tableOpts.push({ value: r.table, label: r.table + ' (tidak ada di denah)' });
-  const preChosen = r ? r.preorder.map(function (p) { return p.id; }) : [];
   const fields = [
-      { name: 'date', label: 'Tanggal', value: r ? r.date : Rsvp.date, help: 'Format 2026-10-11' },
-      { name: 'time', label: 'Jam', type: 'select', options: rsvpTimeOptions_(r ? r.time : ''), value: r ? r.time : '19:00',
-        help: 'Pilih jam datang tamu (setiap 30 menit).' },
-      { name: 'guest', label: 'Nama tamu', value: r ? r.guest : '' },
-      { name: 'pax', label: 'Jumlah orang (pax)', type: 'number', value: r ? r.pax : 2 },
-      { name: 'table', label: 'Meja', type: 'select', options: tableOpts, value: r ? r.table : '',
-        help: 'Pilih dari denah. Pilih "Belum ditentukan" kalau belum tahu.' },
-      { name: 'notes', label: 'Catatan (opsional)', value: r ? r.notes : '' },
-      { name: 'strict', label: 'Meja khusus RSVP', type: 'checkbox', value: r ? r.strict : false,
-        help: 'Meja ini ditandai RSVP sejak pagi di denah, dan staff diingatkan 15 menit sebelum jam RSVP. Isi meja dulu.' }
-    ];
+    { name: 'date', label: 'Tanggal', value: r ? r.date : Rsvp.date, help: 'Format 2026-10-11' },
+    { name: 'time', label: 'Jam', type: 'select', options: rsvpTimeOptions_(r ? r.time : ''), value: r ? r.time : '19:00',
+      help: 'Pilih jam datang tamu (setiap 30 menit).' },
+    { name: 'guest', label: 'Nama tamu', value: r ? r.guest : '' },
+    { name: 'pax', label: 'Jumlah orang (pax)', type: 'number', value: r ? r.pax : 2 },
+    { name: 'table', label: 'Meja', type: 'select', options: tableOpts, value: r ? r.table : '',
+      help: 'Pilih dari denah. Pilih "Belum ditentukan" kalau belum tahu.' },
+    { name: 'notes', label: 'Catatan internal (opsional)', value: r ? r.notes : '',
+      help: 'Hanya untuk staff. Tidak dikirim ke dapur.' },
+    { name: 'strict', label: 'Meja khusus RSVP', type: 'checkbox', value: r ? r.strict : false,
+      help: 'Meja ini ditandai RSVP sejak pagi di denah, dan staff diingatkan 15 menit sebelum jam RSVP. Isi meja dulu.' }
+  ];
   if (menu.length) {
-    fields.push({ name: 'preorder', label: 'Pre-order (opsional)', type: 'multi', value: preChosen,
-      options: menu.map(function (p) { return { value: p.id, label: p.name }; }),
-      help: 'Dimuat ke bill saat tamu datang. Jumlah bisa diubah di kasir sebelum disimpan ke dapur.' });
+    fields.push({ name: 'preorderOn', label: 'Ada pre-order', type: 'checkbox', value: !!(r && r.preorder && r.preorder.length),
+      help: 'Setelah Simpan, pilih menu pre-order. Pre-order dikirim ke dapur saat tamu datang.' });
   }
   openForm({
     title: r ? 'Ubah RSVP' : 'RSVP baru',
     fields: fields,
     submitLabel: 'Simpan',
     onSubmit: async function (v) {
-      const chosen = v.preorder || [];
-      if (chosen.length) {   // langkah kedua: catatan per menu pre-order (dibuka setelah form ini tertutup)
-        setTimeout(function () { rsvpNotesForm(r, v, menu, chosen); }, 0);
+      if (v.preorderOn && menu.length) {   // langkah kedua: pilih menu pre-order (dibuka setelah form ini tertutup)
+        const lines = r ? r.preorder : [];
+        setTimeout(function () { rsvpPreSheet(r, v, menu, lines); }, 0);
         return;
       }
-      await rsvpSave(r, v, null);
+      await rsvpSave(r, v, []);
     }
   });
 }
 
-/** Jumlah porsi dan catatan per menu pre-order. Contoh: Babi Kecap · 2 porsi · tidak pedas. */
-function rsvpNotesForm(r, v, menu, chosen) {
-  const names = {}, noteOf = {}, qtyOf = {};
-  menu.forEach(function (p) { names[p.id] = p.name; });
-  if (r) r.preorder.forEach(function (p) { noteOf[p.id] = p.note || ''; qtyOf[p.id] = p.qty || 1; });
-  const fields = [];
-  chosen.forEach(function (id, i) {
-    fields.push({ name: 'qty' + i, label: (names[id] || id) + ' · jumlah porsi', type: 'number', min: 1, max: 99,
-      value: qtyOf[id] || 1, help: i === 0 ? 'Jumlah porsi untuk tamu ini.' : '' });
-    fields.push({ name: 'note' + i, label: (names[id] || id) + ' · catatan', value: noteOf[id] || '',
-      help: i === 0 ? 'Contoh: tidak pedas, es dipisah. Boleh dikosongkan.' : '' });
-  });
-  openForm({
-    title: 'Pre-order: jumlah & catatan',
-    fields: fields,
-    submitLabel: 'Simpan RSVP',
-    onSubmit: async function (nv) {
-      const items = {};
-      chosen.forEach(function (id, i) {
-        const q = Number(nv['qty' + i]);
-        if (!Number.isInteger(q) || q < 1 || q > 99) throw new Error('Jumlah porsi ' + (names[id] || id) + ' harus 1 sampai 99.');
-        items[id] = { qty: q, note: String(nv['note' + i] || '').trim() };
-      });
-      await rsvpSave(r, v, items);
+/** Layar pre-order: ketuk menu untuk menambah, lalu atur jumlah (−/+) dan catatan per baris. */
+function rsvpPreSheet(r, v, menu, lines) {
+  const byId = {};
+  menu.forEach(function (p) { byId[p.id] = p; });
+  const nameOf = function (id) { return byId[id] ? byId[id].name : id; };
+  const st = { lines: lines.map(function (l) { return { id: l.id, qty: l.qty || 1, note: l.note || '' }; }) };
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pre-sheet';
+  const box = document.createElement('div');
+  box.className = 'pre-box';
+  box.setAttribute('role', 'dialog');
+  wrap.appendChild(box);
+  document.body.appendChild(wrap);
+  const close = function () { wrap.remove(); };
+
+  function draw() {
+    const groups = {}, order = [];
+    menu.forEach(function (p) {
+      const c = p.category || 'Lainnya';
+      if (!groups[c]) { groups[c] = []; order.push(c); }
+      groups[c].push(p);
+    });
+    const counts = {};
+    st.lines.forEach(function (l) { counts[l.id] = (counts[l.id] || 0) + l.qty; });
+    const rows = st.lines.map(function (l, i) {
+      return '<div class="pre-row"><div class="pre-row-top"><span class="pre-name">' + esc(nameOf(l.id)) + '</span>' +
+        '<div class="pre-step"><button type="button" data-act="minus" data-i="' + i + '" aria-label="Kurangi">−</button>' +
+        '<span>' + l.qty + '</span><button type="button" data-act="plus" data-i="' + i + '" aria-label="Tambah">+</button></div></div>' +
+        '<input class="pre-note" data-i="' + i + '" maxlength="100" placeholder="Catatan, mis. tidak pedas (boleh kosong)" value="' + esc(l.note) + '">' +
+        '<div style="text-align:right"><button type="button" class="pre-del" data-act="del" data-i="' + i + '">Hapus baris</button></div></div>';
+    }).join('');
+    const menuHtml = order.map(function (c) {
+      return '<div class="pre-sec">' + esc(c) + '</div><div class="pre-menu">' + groups[c].map(function (p) {
+        return '<button type="button" class="pre-add" data-act="add" data-id="' + esc(p.id) + '">' + esc(p.name) +
+          (counts[p.id] ? ' <b>× ' + counts[p.id] + '</b>' : '') + '</button>';
+      }).join('') + '</div>';
+    }).join('');
+    box.innerHTML = '<div class="pre-head"><b>Pre-order · ' + esc(v.guest || '') + '</b>' +
+      '<button type="button" class="pre-x" data-act="close" aria-label="Tutup">×</button></div>' +
+      '<p class="small muted">Ketuk menu untuk menambah. Tiap baris punya jumlah dan catatan sendiri. ' +
+      'Contoh: 2 Babi Kecap, satu tidak pedas dan satu biasa, dibuat dua baris.</p>' +
+      '<div class="pre-sec">Dipesan</div>' +
+      (st.lines.length ? rows : '<div class="empty">Belum ada menu dipilih.</div>') +
+      '<div class="pre-sec">Pilih menu</div>' + menuHtml +
+      '<div class="pre-foot"><button type="button" data-act="close">Batal</button>' +
+      '<button type="button" class="pre-primary" data-act="save">Simpan RSVP</button></div>';
+  }
+
+  box.addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const act = b.dataset.act;
+    const i = Number(b.dataset.i);
+    if (act === 'close') return close();
+    if (act === 'save') {
+      const list = st.lines.map(function (l) { return { id: l.id, qty: l.qty, note: String(l.note || '').trim() }; });
+      b.disabled = true;
+      try {
+        await rsvpSave(r, v, list);
+        close();
+      } catch (err) {
+        b.disabled = false;
+        toast(err.message, 'warn');
+      }
+      return;
     }
+    if (act === 'add') st.lines.push({ id: b.dataset.id, qty: 1, note: '' });
+    else if (act === 'plus' && st.lines[i].qty < 99) st.lines[i].qty++;
+    else if (act === 'minus' && st.lines[i].qty > 1) st.lines[i].qty--;
+    else if (act === 'del') st.lines.splice(i, 1);
+    draw();
   });
+  box.addEventListener('input', function (e) {
+    if (e.target.classList.contains('pre-note')) st.lines[Number(e.target.dataset.i)].note = e.target.value;   // tanpa gambar ulang, supaya kursor tidak lompat
+  });
+  draw();
 }
 
-async function rsvpSave(r, v, items) {
-  const qtyOf = {}, noteOf = {};
-  if (r) r.preorder.forEach(function (p) { qtyOf[p.id] = p.qty; noteOf[p.id] = p.note || ''; });
+async function rsvpSave(r, v, preorder) {
   const data = Object.assign({ id: r ? r.id : '' }, v);
-  data.preorder = (v.preorder || []).map(function (id) {
-    if (items && items[id]) return { id: id, qty: items[id].qty, note: items[id].note };
-    return { id: id, qty: qtyOf[id] || 1, note: noteOf[id] || '' };
-  });
+  delete data.preorderOn;
+  data.preorder = preorder || [];
   await api('apiSaveRsvp', App.token, data);
   toast('RSVP disimpan.');
   Rsvp.date = v.date;
