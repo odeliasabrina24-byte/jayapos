@@ -161,11 +161,28 @@ function apiGetRsvp(token, date) {
   });
 }
 
-/** Daftar menu aktif untuk memilih pre-order di form RSVP. */
+/** Nama meja dari denah (yang aktif), urutan sama dengan denah. */
+function rsvpTableNames_() {
+  return tablesList_().filter(function (t) { return t.active; }).map(function (t) { return t.name; });
+}
+
+/** Meja harus dipilih dari denah. Pengecualian: meja lama tetap boleh kalau tidak diubah. */
+function rsvpPickTable_(tableIn, oldTable) {
+  if (!tableIn) return '';
+  const hit = rsvpTableNames_().filter(function (n) { return n.trim().toLowerCase() === tableIn.toLowerCase(); })[0];
+  if (hit) return hit;
+  if (oldTable && oldTable === tableIn) return oldTable;
+  throw new Error('Meja "' + tableIn + '" tidak ada di denah. Pilih dari daftar meja.');
+}
+
+/** Pilihan untuk form RSVP: menu aktif (pre-order) dan daftar meja dari denah. */
 function apiGetRsvpMenu(token) {
   return run_(function () {
     requirePerm_(token, 'rsvp.manage');
-    return getActiveProducts_().map(function (p) { return { id: p.id, name: p.name }; });
+    return {
+      menu: getActiveProducts_().map(function (p) { return { id: p.id, name: p.name }; }),
+      tables: rsvpTableNames_()
+    };
   });
 }
 
@@ -179,31 +196,33 @@ function apiSaveRsvp(token, data) {
     const guest = cleanText_(data.guest, 40);
     if (guest.length < 2) throw new Error('Isi nama tamu (minimal 2 huruf).');
     const pax = checkPax_(data.pax);
-    const table = cleanText_(data.table, 20);
-    const items = cleanText_(data.items, 300);
+    const tableIn = cleanText_(data.table, 20);
+    const wantStrict = data.strict === true || String(data.strict).toLowerCase() === 'true';
     const notes = cleanText_(data.notes, 200);
-    const strict = !!table && (data.strict === true || String(data.strict).toLowerCase() === 'true');
     const preorder = sanitizePreorder_(data.preorder);
     const now = nowStamp_();
     return withLock_(function () {
       const id = String(data.id || '');
-      if (id) {
-        const row = readTable_('Reservations').rows.filter(function (r) { return String(r.Reservation_ID) === id; })[0];
-        if (!row) throw new Error('RSVP tidak ditemukan. Muat ulang layar.');
-        const changedSlot = cellText_(row.Date) !== date || cellText_(row.Time) !== time;
-        const fields = { Date: date, Time: time, Guest_Name: guest, Pax: pax, Table_Name: table, Pesanan_Awal: items,
-          Notes: notes, Strict: strict ? 'YES' : 'NO', Preorder_JSON: JSON.stringify(preorder), Updated_At: now };
-        if (changedSlot) fields.Reminded_At = '';   // jam berubah: pengingat dikirim lagi
-        updateRow_('Reservations', row._row, fields);
-        audit_(user, 'UPDATE', 'Reservation', id, { guest: guest, date: date, time: time, strict: strict });
+      const old = id ? readTable_('Reservations').rows.filter(function (r) { return String(r.Reservation_ID) === id; })[0] : null;
+      if (id && !old) throw new Error('RSVP tidak ditemukan. Muat ulang layar.');
+      const table = rsvpPickTable_(tableIn, old ? cellText_(old.Table_Name) : '');
+      const strict = !!table && wantStrict;
+      if (old) {
+        const changedSlot = cellText_(old.Date) !== date || cellText_(old.Time) !== time;
+        const fields = { Date: date, Time: time, Guest_Name: guest, Pax: pax, Table_Name: table, Notes: notes,
+          Strict: strict ? 'YES' : 'NO', Preorder_JSON: JSON.stringify(preorder), Updated_At: now };
+        if (data.items !== undefined) fields.Pesanan_Awal = cleanText_(data.items, 300);
+        if (changedSlot) fields.Reminded_At = '';   // jam atau tanggal berubah: pengingat dikirim lagi
+        updateRow_('Reservations', old._row, fields);
+        audit_(user, 'UPDATE', 'Reservation', id, { guest: guest, date: date, time: time, table: table, strict: strict });
         return { id: id };
       }
       const newId = 'RSV-' + date.replace(/-/g, '') + '-' + Utilities.getUuid().slice(0, 6).toUpperCase();
       appendObjects_('Reservations', [{ Reservation_ID: newId, Date: date, Time: time, Guest_Name: guest, Pax: pax,
-        Table_Name: table, Pesanan_Awal: items, Notes: notes, Status: 'BOOKED', Created_By: user.name,
+        Table_Name: table, Pesanan_Awal: '', Notes: notes, Status: 'BOOKED', Created_By: user.name,
         Created_At: now, Updated_At: now, Strict: strict ? 'YES' : 'NO', Preorder_JSON: JSON.stringify(preorder),
         Reminded_At: '' }]);
-      audit_(user, 'CREATE', 'Reservation', newId, { guest: guest, date: date, time: time, strict: strict });
+      audit_(user, 'CREATE', 'Reservation', newId, { guest: guest, date: date, time: time, table: table, strict: strict });
       return { id: newId };
     });
   });
