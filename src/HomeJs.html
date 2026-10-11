@@ -40,7 +40,7 @@ function markTab(id) {
 
 /* ---------- Beranda ---------- */
 Views.home = function () {
-  if (!hasNav('home')) return homeFallback();
+  if (!hasNav('home')) return hasNav('kitchen') ? homeKitchenOnly() : homeFallback();
   if (Home.data) homeRender();
   homeLoad();
 };
@@ -95,6 +95,7 @@ function homeRender() {
   // Big number = porsi (makanan + minuman) yang siap diantar; the lines below give the split per station
   const readyPortions = (kb.RDY_FOOD || 0) + (kb.RDY_BAR || 0);
   const readyBig = kb.RDY_FOOD == null && kb.RDY_BAR == null ? kb.READY : readyPortions;
+  if (hasNav('kitchen')) big.push(homeLive('kitchen', 'Layar Dapur', kb.FOOD, 'tiket menunggu dimasak', 'Antrean dapur kosong', 'green'));
   if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', readyBig, '', 'Belum ada yang siap', 'green', readyLines.join('<br>')));
   // Layar Barista = minuman yang belum dibuat, sama dengan isi layar dan lencana "Bar N"
   if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR,
@@ -114,6 +115,29 @@ function homeRender() {
     shiftHtml +
     (big.length ? '<div class="home-bigs">' + big.join('') + '</div>' : '') +
     '<div class="home-tiles">' + tiles.join('') + '</div>';
+}
+
+/** Beranda untuk dapur saja (mis. Chef): hanya tombol live dapur, tanpa data penjualan. */
+function homeKitchenOnly() {
+  homeKitchenDraw();
+  homeKitchenLoad();
+  if (!Home.kitTimer) Home.kitTimer = setInterval(function () {
+    if (App.view === 'home' && App.token && !document.hidden && !hasNav('home')) homeKitchenLoad();
+  }, 20000);
+}
+
+async function homeKitchenLoad() {
+  try { if (typeof kitBadgeLoad === 'function') await kitBadgeLoad(); } catch (e) { /* tampil dengan angka terakhir */ }
+  if (App.view === 'home') homeKitchenDraw();
+}
+
+function homeKitchenDraw() {
+  const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
+  const big = [];
+  if (hasNav('kitchen')) big.push(homeLive('kitchen', 'Layar Dapur', kb.FOOD, 'tiket menunggu dimasak', 'Antrean dapur kosong', 'green'));
+  if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR, 'minuman dari ' + (kb.BAR_TABLES || 0) + ' meja', 'Antrean minuman kosong', 'green'));
+  $('homeBody').innerHTML = '<div class="home-hello"><h2>Halo, ' + esc(App.user.name) + '</h2></div>' +
+    (big.length ? '<div class="home-bigs">' + big.join('') + '</div>' : '');
 }
 
 function homeLive(view, title, n, subOn, subOff, tone, extra) {
