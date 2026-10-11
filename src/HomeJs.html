@@ -47,6 +47,8 @@ Views.home = function () {
   if (!hasNav('home')) return homeHasLive() ? homeLimitedOnly() : homeFallback();
   if (Home.data) homeRender();
   homeLoad();
+  // Angka Dapur / Bar / Siap diantar harus segar setiap kali Beranda dibuka (bukan sisa dari layar lain)
+  if (typeof kitBadgeLoad === 'function') kitBadgeLoad().then(function () { if (App.view === 'home' && Home.data) homeRender(); });
 };
 
 /** Roles that only have planned modules. */

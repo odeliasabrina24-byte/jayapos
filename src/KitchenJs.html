@@ -208,6 +208,17 @@ async function kitStart(id) {
   }
 }
 
+/** Ringkasan layar (porsi & meja) dihitung ulang dari daftar yang tampil, supaya angka Layar Barista ikut berubah saat tiket dipindah. */
+function kitSummaryLocal() {
+  const tbl = {};
+  let portions = 0;
+  (Kit.data.open || []).forEach(function (t) {
+    const n = t.items.reduce(function (s, i) { return s + Math.max(0, (Number(i.qty) || 0) - (Number(i.rdy) || 0)); }, 0);
+    if (n > 0) { portions += n; tbl[t.table] = true; }
+  });
+  Kit.data.summary = { portions: portions, tables: Object.keys(tbl).length };
+}
+
 async function kitDone(id, undo) {
   if (Kit.busy[id]) return;
   if (!undo) kitClearPend(id);
@@ -219,6 +230,7 @@ async function kitDone(id, undo) {
     if (undo) { Kit.data.done = Kit.data.done.filter(function (x) { return x !== t; }); Kit.data.open.push(t); }
     else { Kit.hide[id] = true; Kit.data.open = Kit.data.open.filter(function (x) { return x !== t; }); t.doneAt = new Date().toTimeString().slice(0, 5); Kit.data.done.unshift(t); }
     Kit.lastIds = Kit.data.open.map(function (x) { return x.id; });
+    kitSummaryLocal();
     kitRender();
     if (!undo) toast('Pindah ke "Sudah dibuat hari ini". Lihat di tab itu.');
   }
@@ -227,10 +239,12 @@ async function kitDone(id, undo) {
   } catch (e) {
     delete Kit.hide[id];
     Kit.data.open = prev.open; Kit.data.done = prev.done;
+    kitSummaryLocal();
     toast(e.message, 'err');
     kitRender();
   } finally {
     delete Kit.busy[id];
+    Kit.loading = false;          // jangan dilewati kalau ada muat ulang yang masih jalan
     kitLoad(true);
   }
 }
