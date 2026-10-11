@@ -328,7 +328,7 @@ function serveTickets_(orders) {
 /** Takeaway tickets carry their number (TA-001) or the old label "Takeaway" as table name. */
 function isTakeawayTicket_(r) {
   const t = String(r.Table_Name || '');
-  return /^TA-\d+$/.test(t) || t === 'Takeaway';
+  return /^TA-\d+$/.test(t) || t === 'Takeaway' || t === 'GrabFood' || t === 'GoFood';
 }
 
 /** Serve board: ready / cooking / all rounds. Shared by the Siap diantar screen and the Beranda count. */

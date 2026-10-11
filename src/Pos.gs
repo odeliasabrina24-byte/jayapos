@@ -459,7 +459,10 @@ function apiCompleteOrder(token, order) {
       } while (getTransactionById_(txId)); // extra guard if the counter was ever reset
       props.setProperty(seqKey, String(seq));
       // Takeaway number for the kitchen, serve screen and receipt: TA-001, TA-002, … (restarts every day)
-      const taNo = bill ? '' : nextTakeawayNo_(dateKey);
+      // GrabFood/GoFood: no TA number; the platform name is the table/jenis label instead
+      const platName = !bill && platMethods.length ? methodLabel_(platMethods[0]) : '';
+      const taNo = bill || platName ? '' : nextTakeawayNo_(dateKey);
+      const orderTag = bill ? bill.tableName : (platName || taNo);
 
       const priorPaid = bill ? bill.paidTx.length : 0;
       const partial = !!(picked && picked.rest.length);
@@ -467,7 +470,7 @@ function apiCompleteOrder(token, order) {
       if (bill && (partial || priorPaid)) split.push('Split bill ke-' + (priorPaid + 1));
       if (tot.parts.length > 1) split.push('Bagi rata ' + tot.parts.length);
       // Takeaway GoFood/GrabFood: nomor pesanan platform jadi nama di tiket dapur, Siap diantar, struk & riwayat
-      const platLabel = platMethods.length ? methodLabel_(platMethods[0]) + ' ' + platRef : '';
+      const platLabel = platMethods.length ? platRef : '';
       const guest = bill ? bill.guestName : cleanGuest_([platLabel, cleanGuest_(order.guestName)].filter(Boolean).join(' · '));
 
       const dateStr = backdate ? backdate.date : fmt_(now, 'yyyy-MM-dd');
@@ -478,7 +481,7 @@ function apiCompleteOrder(token, order) {
         Subtotal: tot.subtotal, Discount: tot.discount, Grand_Total: tot.grand, Payment_Method: method,
         Amount_Paid: paidTotal, Change: changeTotal, Status: 'COMPLETED', Cashier_ID: user.id,
         Timestamp: stamp, Client_Ref: clientRef, Outlet_ID: settings.Outlet_ID || '', Notes: noteParts.join(' · '),
-        Order_Type: bill ? 'DINE_IN' : (platMethods.length ? platMethods[0] : 'TAKEAWAY'), Table_Name: bill ? bill.tableName : taNo,
+        Order_Type: bill ? 'DINE_IN' : (platMethods.length ? platMethods[0] : 'TAKEAWAY'), Table_Name: orderTag,
         Pax: bill ? (priorPaid ? 0 : bill.pax) : '',
         Service_Charge: tot.service, Tax: tot.tax, Order_ID: bill ? bill.id : '',
         Item_Discount: tot.itemDiscount, Bill_Discount: tot.billDiscount, Bill_Discount_Info: (komp ? 'KOMPLIMEN · ' : '') + discountInfo_(billDisc) + (billDiscReason ? ' · ' + billDiscReason : ''),
@@ -512,7 +515,7 @@ function apiCompleteOrder(token, order) {
       SpreadsheetApp.flush();
       CacheService.getScriptCache().put('ref_' + clientRef, txId, 21600);
       if (!bill) {
-        createTicket_({ orderId: txId, tableName: taNo, guest: guest, round: 1, kind: 'ORDER', user: user },
+        createTicket_({ orderId: txId, tableName: orderTag, guest: guest, round: 1, kind: 'ORDER', user: user },
                       lines.map(function (l) { return { id: l.productId, name: l.name, qty: l.qty, note: l.note, grp: l.group, mods: l.mods }; }), products);
       }
       try { inventoryOnSale_(txId, stockLines_(lines), user, rdata); }

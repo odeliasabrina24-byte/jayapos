@@ -358,8 +358,9 @@ function receiptHtml(r) {
   if (h.phone) s += '<div class="r-center">' + esc(h.phone) + '</div>';
   s += '<div class="r-hr"></div>';
   s += row('No.', r.id) + row('Tanggal', r.dateLabel) + row('Jam', r.time) + row('Kasir', r.cashier);
-  s += r.tableName && !/^TA-/.test(r.tableName) ? row('Meja', r.tableName + (r.pax ? ' · ' + r.pax + ' pax' : '')) : row(orderTypeLabel_(r), r.tableName || '-');
-  if (r.guestName) s += row('Tamu', r.guestName);
+  if (isPlatformOrder_(r)) s += row('Jenis', orderTypeLabel_(r)) + row('No. pesanan', r.guestName || '-');
+  else s += r.tableName && !/^TA-/.test(r.tableName) ? row('Meja', r.tableName + (r.pax ? ' · ' + r.pax + ' pax' : '')) : row(orderTypeLabel_(r), r.tableName || '-');
+  if (r.guestName && !isPlatformOrder_(r)) s += row('Tamu', r.guestName);
   if (r.splitInfo) s += row('Split', r.splitInfo);
   s += '<div class="r-hr"></div>';
   r.items.forEach(function (it) {
@@ -423,8 +424,9 @@ function receiptText(r) {
   if (h.address) out.push(center(h.address));
   if (h.phone) out.push(center(h.phone));
   out.push(hr, lr('No.', r.id), lr('Tanggal', r.dateLabel), lr('Jam', r.time), lr('Kasir', r.cashier));
-  out.push(r.tableName && !/^TA-/.test(r.tableName) ? lr('Meja', r.tableName + (r.pax ? ' / ' + r.pax + ' pax' : '')) : lr(orderTypeLabel_(r), r.tableName || '-'));
-  if (r.guestName) out.push(lr('Tamu', r.guestName));
+  if (isPlatformOrder_(r)) out.push(lr('Jenis', orderTypeLabel_(r)), lr('No. pesanan', r.guestName || '-'));
+  else out.push(r.tableName && !/^TA-/.test(r.tableName) ? lr('Meja', r.tableName + (r.pax ? ' / ' + r.pax + ' pax' : '')) : lr(orderTypeLabel_(r), r.tableName || '-'));
+  if (r.guestName && !isPlatformOrder_(r)) out.push(lr('Tamu', r.guestName));
   if (r.splitInfo) out.push(lr('Split', r.splitInfo));
   out.push(hr);
   r.items.forEach(function (it) {
@@ -631,6 +633,11 @@ function openForm(cfg) {
       $('formSubmit').disabled = false;
     }
   };
+}
+
+/** GrabFood / GoFood order: no TA number on the bill. */
+function isPlatformOrder_(r) {
+  return /^(GRABFOOD|GOFOOD)$/.test(String(r.orderType || '').toUpperCase());
 }
 
 /** Label jenis pesanan di struk: Takeaway, GrabFood, GoFood (atau Makan di tempat). */

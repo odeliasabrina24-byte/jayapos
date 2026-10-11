@@ -763,6 +763,7 @@ function posMods(lid) {
 function posAfterChange() {
   posError('');
   posSaveDraft();
+  posRenderCtx();
   posRenderProducts();
   posRenderCart();
 }
@@ -928,7 +929,7 @@ function posRenderProducts() {
     return '<button class="product' + (img ? ' has-img' : '') + (p.soldOut ? ' sold-out' : '') + '" type="button" data-id="' + esc(p.id) + '">' + img +
       (p.soldOut ? '<span class="p-habis">HABIS</span>' : '') +
       '<span class="p-name">' + esc(p.name) + '</span>' +
-      '<span class="p-price">' + rp(p.price) + '</span>' + (inCart[p.id] ? '<span class="p-qty">' + (Pos.ctx ? '+' : '') + inCart[p.id] + '</span>' : '') + '</button>';
+      '<span class="p-price">' + rp(pm(p.price)) + '</span>' + (inCart[p.id] ? '<span class="p-qty">' + (Pos.ctx ? '+' : '') + inCart[p.id] + '</span>' : '') + '</button>';
   }).join('') : '<div class="empty" style="grid-column:1/-1">Produk tidak ditemukan.</div>';
 }
 
