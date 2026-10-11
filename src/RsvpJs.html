@@ -16,6 +16,7 @@
 .pre-menu{display:flex;flex-wrap:wrap;gap:8px}
 .pre-add{min-height:44px;padding:8px 14px;border-radius:999px;border:1px solid #c9b8a8;background:#fff;font:inherit;cursor:pointer}
 .pre-add b{color:#b3261e}
+.pre-add.on{background:#b3261e;color:#fff;border-color:transparent}
 .pre-foot{display:flex;gap:8px;margin-top:16px;position:sticky;bottom:0;background:#fff;padding-top:8px}
 .pre-foot button{flex:1;min-height:52px;border-radius:12px;font:inherit;font-weight:700;cursor:pointer;border:1px solid #c9b8a8;background:#fff}
 .pre-foot .pre-primary{background:#b3261e;color:#fff;border-color:transparent}
@@ -59,7 +60,10 @@ function rsvpRender() {
   html += Rsvp.rows.length ? Rsvp.rows.map(function (r) {
     const items = r.items ? '<div class="small muted">Pesanan awal (lama): ' + esc(r.items) + '</div>' : '';
     const pre = r.preorder && r.preorder.length ? '<div class="small"><b>Pre-order ke dapur saat tamu datang:</b> ' +
-      r.preorder.map(function (p) { return p.qty + '× ' + esc(p.name) + (p.note ? ' (' + esc(p.note) + ')' : ''); }).join(', ') + '</div>' : '';
+      r.preorder.map(function (p) {
+        return p.qty + '× ' + esc(p.name) + (p.mods && p.mods.length ? ' + ' + p.mods.map(function (m) { return esc(m.name); }).join(', ') : '') +
+          (p.note ? ' (' + esc(p.note) + ')' : '');
+      }).join(', ') + '</div>' : '';
     return '<div class="tx">' +
       '<div class="tx-top"><b>' + esc(r.time) + ' · ' + esc(r.guest) + '</b><span class="tag">' + r.pax + ' pax</span></div>' +
       '<div class="tx-meta">' + (r.table ? '<span class="tag table-tag">' + esc(r.table) + '</span>' : '<span class="tag">Meja belum ditentukan</span>') +
@@ -96,6 +100,7 @@ async function rsvpForm(r) {
   let opts = { menu: [], tables: [] };
   try { opts = await api('apiGetRsvpMenu', App.token); } catch (e) { opts = { menu: [], tables: [] }; }
   const menu = opts.menu || [];
+  const addons = opts.addons || [];
   const tableOpts = [{ value: '', label: 'Belum ditentukan' }].concat((opts.tables || []).map(function (n) { return { value: n, label: n }; }));
   if (r && r.table && (opts.tables || []).indexOf(r.table) < 0) tableOpts.push({ value: r.table, label: r.table + ' (tidak ada di denah)' });
   const fields = [
@@ -122,7 +127,7 @@ async function rsvpForm(r) {
     onSubmit: async function (v) {
       if (v.preorderOn && menu.length) {   // langkah kedua: pilih menu pre-order (dibuka setelah form ini tertutup)
         const lines = r ? r.preorder : [];
-        setTimeout(function () { rsvpPreSheet(r, v, menu, lines); }, 0);
+        setTimeout(function () { rsvpPreSheet(r, v, menu, lines, addons); }, 0);
         return;
       }
       await rsvpSave(r, v, []);
@@ -131,11 +136,13 @@ async function rsvpForm(r) {
 }
 
 /** Layar pre-order: ketuk menu untuk menambah, lalu atur jumlah (−/+) dan catatan per baris. */
-function rsvpPreSheet(r, v, menu, lines) {
+function rsvpPreSheet(r, v, menu, lines, addons) {
   const byId = {};
   menu.forEach(function (p) { byId[p.id] = p; });
   const nameOf = function (id) { return byId[id] ? byId[id].name : id; };
-  const st = { lines: lines.map(function (l) { return { id: l.id, qty: l.qty || 1, note: l.note || '' }; }) };
+  const st = { lines: lines.map(function (l) {
+    return { id: l.id, qty: l.qty || 1, note: l.note || '', mods: (l.mods || []).map(function (m) { return m.id; }) };
+  }) };
 
   const wrap = document.createElement('div');
   wrap.className = 'pre-sheet';
@@ -156,9 +163,17 @@ function rsvpPreSheet(r, v, menu, lines) {
     const counts = {};
     st.lines.forEach(function (l) { counts[l.id] = (counts[l.id] || 0) + l.qty; });
     const rows = st.lines.map(function (l, i) {
+      const group = byId[l.id] ? byId[l.id].group : '';
+      const avail = addons.filter(function (a) { return group && a.group === group; });
+      const addHtml = avail.length ? '<div class="pre-menu" style="margin-top:8px">' + avail.map(function (a) {
+        const on = l.mods.indexOf(a.id) >= 0;
+        return '<button type="button" class="pre-add' + (on ? ' on' : '') + '" data-act="mod" data-i="' + i + '" data-m="' + esc(a.id) + '">' +
+          (on ? '✓ ' : '+ ') + esc(a.name) + ' · ' + rp(a.price) + '</button>';
+      }).join('') + '</div>' : '';
       return '<div class="pre-row"><div class="pre-row-top"><span class="pre-name">' + esc(nameOf(l.id)) + '</span>' +
         '<div class="pre-step"><button type="button" data-act="minus" data-i="' + i + '" aria-label="Kurangi">−</button>' +
         '<span>' + l.qty + '</span><button type="button" data-act="plus" data-i="' + i + '" aria-label="Tambah">+</button></div></div>' +
+        addHtml +
         '<input class="pre-note" data-i="' + i + '" maxlength="100" placeholder="Catatan, mis. tidak pedas (boleh kosong)" value="' + esc(l.note) + '">' +
         '<div style="text-align:right"><button type="button" class="pre-del" data-act="del" data-i="' + i + '">Hapus baris</button></div></div>';
     }).join('');
@@ -186,7 +201,7 @@ function rsvpPreSheet(r, v, menu, lines) {
     const i = Number(b.dataset.i);
     if (act === 'close') return close();
     if (act === 'save') {
-      const list = st.lines.map(function (l) { return { id: l.id, qty: l.qty, note: String(l.note || '').trim() }; });
+      const list = st.lines.map(function (l) { return { id: l.id, qty: l.qty, note: String(l.note || '').trim(), mods: l.mods }; });
       b.disabled = true;
       try {
         await rsvpSave(r, v, list);
@@ -197,7 +212,11 @@ function rsvpPreSheet(r, v, menu, lines) {
       }
       return;
     }
-    if (act === 'add') st.lines.push({ id: b.dataset.id, qty: 1, note: '' });
+    if (act === 'mod') {
+      const arr = st.lines[i].mods, k = arr.indexOf(b.dataset.m);
+      if (k >= 0) arr.splice(k, 1); else arr.push(b.dataset.m);
+    }
+    else if (act === 'add') st.lines.push({ id: b.dataset.id, qty: 1, note: '', mods: [] });
     else if (act === 'plus' && st.lines[i].qty < 99) st.lines[i].qty++;
     else if (act === 'minus' && st.lines[i].qty > 1) st.lines[i].qty--;
     else if (act === 'del') st.lines.splice(i, 1);

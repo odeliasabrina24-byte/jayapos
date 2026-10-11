@@ -1106,8 +1106,12 @@ function posPrefillPreorder(list) {
   list.forEach(function (x) {
     const p = Pos.byId[x.id];
     if (!p || p.soldOut) { skipped.push(x.name); return; }
+    const mods = (x.mods || []).map(function (m) {
+      const mm = (Pos.mods || []).filter(function (q) { return q.id === m.id; })[0];
+      return mm ? { id: mm.id, name: mm.name, price: mm.price } : null;
+    }).filter(Boolean);
     Pos.cart.push({ lid: newLid(), id: p.id, name: p.name, price: p.price, qty: x.qty || 1, disc: null, note: x.note || '', grp: p.group || '',
-                    mods: [], round: 0, at: '', by: '', from: '', savedQty: 0 });
+                    mods: mods, round: 0, at: '', by: '', from: '', savedQty: 0 });
   });
   posAfterChange();
   toast('Pre-order RSVP dimuat. Cek jumlahnya, lalu tekan “Simpan ke meja” untuk kirim ke dapur.' +

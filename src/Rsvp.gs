@@ -49,18 +49,29 @@ function rsvpRowToObj_(r) {
   };
 }
 
-/** Pre-order dibersihkan: hanya produk aktif, qty 1-99, maksimal 30 baris. */
+/**
+ * Pre-order dibersihkan: hanya produk aktif (bukan add-on), qty 1-99, maksimal 30 baris.
+ * Add-on (syrup dll.) hanya boleh dipasang ke menu yang grup resepnya sama, maksimal 5 per baris.
+ */
 function sanitizePreorder_(list) {
   if (!Array.isArray(list)) return [];
+  const addCat = modifierCategory_();
+  const all = getActiveProducts_();
   const byId = {};
-  getActiveProducts_().forEach(function (p) { byId[p.id] = p; });
+  all.forEach(function (p) { byId[p.id] = p; });
   const out = [];
   list.forEach(function (x) {
     const id = String((x && x.id) || '').slice(0, 40);
     const p = byId[id];
-    if (!p || out.length >= 30) return;
+    if (!p || p.category === addCat || out.length >= 30) return;
     const qty = Math.max(1, Math.min(99, parseInt(x.qty, 10) || 1));
-    out.push({ id: id, name: p.name, qty: qty, note: cleanText_(x.note, 100) });
+    const mods = [];
+    (Array.isArray(x.mods) ? x.mods : []).forEach(function (mid) {
+      const a = byId[String(mid)];
+      if (!a || a.category !== addCat || !a.recipeGroup || a.recipeGroup !== p.recipeGroup) return;
+      if (mods.length < 5 && !mods.some(function (m) { return m.id === a.id; })) mods.push({ id: a.id, name: a.name, price: a.price });
+    });
+    out.push({ id: id, name: p.name, qty: qty, note: cleanText_(x.note, 100), mods: mods });
   });
   return out;
 }
@@ -175,12 +186,19 @@ function rsvpPickTable_(tableIn, oldTable) {
   throw new Error('Meja "' + tableIn + '" tidak ada di denah. Pilih dari daftar meja.');
 }
 
-/** Pilihan untuk form RSVP: menu aktif (pre-order) dan daftar meja dari denah. */
+/** Pilihan untuk form RSVP: menu utama (dengan grup resep), add-on, dan daftar meja dari denah. */
 function apiGetRsvpMenu(token) {
   return run_(function () {
     requirePerm_(token, 'rsvp.manage');
+    const addCat = modifierCategory_();
+    const all = getActiveProducts_();
     return {
-      menu: getActiveProducts_().map(function (p) { return { id: p.id, name: p.name, category: p.category || 'Lainnya' }; }),
+      menu: all.filter(function (p) { return p.category !== addCat; }).map(function (p) {
+        return { id: p.id, name: p.name, category: p.category || 'Lainnya', group: p.recipeGroup || '' };
+      }),
+      addons: all.filter(function (p) { return p.category === addCat; }).map(function (p) {
+        return { id: p.id, name: p.name, price: p.price, group: p.recipeGroup || '' };
+      }),
       tables: rsvpTableNames_()
     };
   });
