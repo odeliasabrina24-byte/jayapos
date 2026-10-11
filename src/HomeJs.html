@@ -10,6 +10,7 @@ const TAB_ICONS = {
   tables: '<rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   pos: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
   history: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  rsvp: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   more: '<path d="M4 7h16M4 12h16M4 17h16"/>'
 };
 
@@ -22,12 +23,15 @@ function hasNav(id) { return (App.nav || []).some(function (n) { return n.id ===
 /** Bottom tab bar for people who sell (cashier, owner, admin). Everything else stays in ☰. */
 function renderTabs() {
   const bar = $('tabBar');
-  const on = hasNav('home');
+  const sells = hasNav('home');
+  const on = sells || homeHasLive();
   document.body.classList.toggle('has-tabs', on);
   bar.hidden = !on;
   if (!on) { bar.innerHTML = ''; return; }
-  const tabs = [['home', 'Beranda'], ['tables', 'Meja'], ['pos', 'Pesan'], ['history', 'Riwayat']]
-    .filter(function (t) { return hasNav(t[0]); });
+  const list = sells
+    ? [['home', 'Beranda'], ['tables', 'Meja'], ['pos', 'Pesan'], ['history', 'Riwayat']]
+    : [['home', 'Beranda'], ['tables', 'Meja'], ['rsvp', 'RSVP'], ['history', 'Riwayat']];   // role tanpa penjualan
+  const tabs = list.filter(function (t) { return t[0] === 'home' || hasNav(t[0]); });
   bar.innerHTML = tabs.map(function (t) {
     return '<button type="button" class="tab" data-tab="' + t[0] + '">' + tabIcon(t[0]) + '<span>' + t[1] + '</span></button>';
   }).join('') + '<button type="button" class="tab" data-tab="more">' + tabIcon('more') + '<span>Lainnya</span></button>';

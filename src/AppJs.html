@@ -247,6 +247,7 @@ function defaultView() {
   if (ids.indexOf('home') >= 0) return 'home';                 // cashier, owner, admin
   if (ids.indexOf('kitchen') >= 0) return 'kitchen';           // chef
   if (ids.indexOf('bar_orders') >= 0) return 'bar_orders';     // barista
+  if (homeHasLive()) return 'home';                            // tanpa penjualan: Beranda dengan tombol live
   if (ids.indexOf('pos') >= 0 && can('pos.sell')) return 'pos';
   if (ids.indexOf('tables') >= 0 && can('tables.serve')) return 'tables';
   if (ids.indexOf('dashboard') >= 0) return 'dashboard';

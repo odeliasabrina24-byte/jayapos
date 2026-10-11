@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.53';
+const APP_VERSION = '3.4.54';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -40,10 +40,11 @@ const ROLES = ['ADMIN', 'OWNER', 'CASHIER', 'CHEF', 'BARISTA', 'PURCHASING'];
  * Old role SERVER is now CASHIER (see normRole_ in Auth.gs).
  */
 const EXTRA_ROLES = ROLES.slice();
-const EXTRA_PERMS = ['tables.serve', 'kitchen.food', 'kitchen.bar', 'pos.sell', 'pos.order', 'menu.soldout'];
+const EXTRA_PERMS = ['tables.serve', 'kitchen.food', 'kitchen.bar', 'pos.sell', 'pos.order', 'menu.soldout', 'rsvp.manage', 'history.view_recent'];
 const PERM_LABELS = {
   'tables.serve': 'Antar pesanan', 'kitchen.food': 'Layar Dapur', 'kitchen.bar': 'Layar Barista',
-  'pos.sell': 'Bayar', 'pos.order': 'Catat pesanan', 'menu.soldout': 'Menu Habis'
+  'pos.sell': 'Bayar', 'pos.order': 'Catat pesanan', 'menu.soldout': 'Menu Habis',
+  'rsvp.manage': 'RSVP', 'history.view_recent': 'Riwayat penjualan'
 };
 
 /**
@@ -55,7 +56,7 @@ const STAFF_ROLES = {
   odelia:  { role: 'OWNER',      extraRoles: ['ADMIN'], extraPerms: [] },
   kevin:   { role: 'BARISTA',    extraRoles: ['CASHIER'], extraPerms: [] },
   sendy:   { role: 'CASHIER',    extraRoles: [],        extraPerms: [] },
-  wisnu:   { role: 'PURCHASING', extraRoles: [],        extraPerms: ['tables.serve'] },
+  wisnu:   { role: 'PURCHASING', extraRoles: [],        extraPerms: ['tables.serve', 'rsvp.manage', 'history.view_recent'] },
   rian:    { role: 'CHEF',       extraRoles: [],        extraPerms: [] },
   reza:    { role: 'CHEF',       extraRoles: [],        extraPerms: [] }
 };
