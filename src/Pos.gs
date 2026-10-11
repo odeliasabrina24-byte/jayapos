@@ -423,6 +423,12 @@ function apiCompleteOrder(token, order) {
       const method = sameMethod ? methods[0] : 'MIXED';
       if (methods.indexOf('BARTER') >= 0 && tot.grand > 0) throw new Error('Metode Barter hanya untuk bill Rp 0 (diskon 100%).');
       const komp = methods.indexOf('KOMPLIMEN') >= 0;
+      const platMethods = methods.filter(function (m) { return m === 'GOFOOD' || m === 'GRABFOOD'; });
+      const platRef = String(order.platformRef || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+      if (platMethods.length && platRef.length < 3) throw new Error('Isi nomor pesanan GoFood/GrabFood (minimal 3 karakter).');
+      const noteParts = [];
+      if (backdate) noteParts.push('SUSULAN (diinput ' + backdate.entered + ' oleh ' + user.name + '): ' + backdate.reason);
+      if (platMethods.length) noteParts.push('No. pesanan ' + methodLabel_(platMethods[0]) + ': ' + platRef);
       if (komp && (methods.length > 1 || tot.grand > 0 || !billDiscReason || billDiscReason.length < 3)) {
         throw new Error('Komplimen hanya untuk bill Rp 0 (diskon 100%) dengan alasan, dan tidak bisa dibagi.');
       }
@@ -462,7 +468,7 @@ function apiCompleteOrder(token, order) {
         Transaction_ID: txId, Date: dateStr, Time: backdate ? backdate.time : fmt_(now, 'HH:mm'), Cashier: user.name,
         Subtotal: tot.subtotal, Discount: tot.discount, Grand_Total: tot.grand, Payment_Method: method,
         Amount_Paid: paidTotal, Change: changeTotal, Status: 'COMPLETED', Cashier_ID: user.id,
-        Timestamp: stamp, Client_Ref: clientRef, Outlet_ID: settings.Outlet_ID || '', Notes: backdate ? 'SUSULAN (diinput ' + backdate.entered + ' oleh ' + user.name + '): ' + backdate.reason : '',
+        Timestamp: stamp, Client_Ref: clientRef, Outlet_ID: settings.Outlet_ID || '', Notes: noteParts.join(' · '),
         Order_Type: bill ? 'DINE_IN' : 'TAKEAWAY', Table_Name: bill ? bill.tableName : taNo,
         Pax: bill ? (priorPaid ? 0 : bill.pax) : '',
         Service_Charge: tot.service, Tax: tot.tax, Order_ID: bill ? bill.id : '',

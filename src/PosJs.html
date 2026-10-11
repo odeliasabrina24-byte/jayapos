@@ -1018,6 +1018,9 @@ function posRenderCart() {
   $('discountRow').hidden = !Pos.allowDiscount || !pay;
   $('billDiscNote').hidden = !t.billDiscount;
   $('discReasonRow').hidden = !(Pos.allowDiscount && pay && t.billDiscount);
+  const platOn = !!pay && !Pos.split && (Pos.payment === 'GOFOOD' || Pos.payment === 'GRABFOOD');
+  $('platRefRow').hidden = !platOn;
+  if (platOn && $('platformRef').value !== (Pos.platformRef || '')) $('platformRef').value = Pos.platformRef || '';
   const isAdminUser = !!(App.perms && App.perms.indexOf('*') >= 0);
   $('backdateRow').hidden = !(isAdminUser && pay && Pos.ctx);
   $('backdateFields').hidden = !($('backdateRow') && !$('backdateRow').hidden && $('backdateToggle').checked);
@@ -1205,6 +1208,7 @@ function posResetOrder() {
 function posSetPayment(k) {
   const was = Pos.payment;
   Pos.payment = k;
+  if (k !== 'GOFOOD' && k !== 'GRABFOOD') Pos.platformRef = '';
   if (k === 'KOMPLIMEN') Pos.billDisc = { type: 'PCT', value: 100, reason: Pos.billDisc.reason || '' };
   else if (was === 'KOMPLIMEN' && Pos.billDisc.type === 'PCT' && Pos.billDisc.value === 100) Pos.billDisc = { type: 'AMT', value: 0 };
 }
@@ -1216,6 +1220,9 @@ function posValidate() {
   if (Pos.billDisc.type === 'PCT' && Pos.billDisc.value > 100) return 'Diskon bill maksimal 100%.';
   if (Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet) return 'Diskon bill lebih besar dari subtotal.';
   if (t.billDiscount > 0 && String(Pos.billDisc.reason || '').trim().length < 3) return 'Tulis alasan diskon bill (minimal 3 huruf).';
+  if (posMethods().some(function (m) { return m === 'GOFOOD' || m === 'GRABFOOD'; }) && String(Pos.platformRef || '').trim().length < 3) {
+    return 'Isi nomor pesanan GoFood/GrabFood (minimal 3 karakter).';
+  }
   if (posMethods().indexOf('KOMPLIMEN') >= 0) {
     if (Pos.split || posMethods().length > 1) return 'Komplimen tidak bisa dibagi atau digabung.';
     if (t.grand > 0) return 'Komplimen hanya untuk bill Rp 0 (diskon 100%).';
@@ -1288,6 +1295,7 @@ async function posComplete() {
       items: Pos.ctx ? [] : posTakeawayItems(),
       billDiscount: Pos.billDisc.value ? Pos.billDisc : null,
       backdate: posBackdatePayload(),
+      platformRef: Pos.platformRef || '',
       applyService: Pos.applyService,
       applyTax: Pos.applyTax,
       payments: payments,
@@ -1301,6 +1309,7 @@ async function posComplete() {
     });
     Pos.busy = false;
     posResetBackdate();
+    Pos.platformRef = '';
     if (receipt.openOrder) {                 // split per item: the rest of the bill stays open
       posLoadBill(receipt.openOrder);
       Pos.ref = null; Pos.split = null; Pos.cash = 0; Pos.payment = 'CASH'; Pos.billDisc = { type: 'AMT', value: 0 };
@@ -1457,6 +1466,10 @@ function posBind() {
     posError(Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet ? 'Diskon bill lebih besar dari subtotal.' : checkDiscLimit(t));
   });
   $('backdateToggle').addEventListener('change', function () { posAfterChange(); });
+  $('platformRef').addEventListener('input', function (e) {
+    Pos.platformRef = e.target.value.slice(0, 40);
+    posSaveDraft();
+  });
   $('discountReason').addEventListener('input', function (e) {
     Pos.billDisc.reason = e.target.value.slice(0, 60);
     posSaveDraft();
