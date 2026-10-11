@@ -40,7 +40,7 @@ function markTab(id) {
 
 /* ---------- Beranda ---------- */
 Views.home = function () {
-  if (!hasNav('home')) return hasNav('kitchen') ? homeKitchenOnly() : homeFallback();
+  if (!hasNav('home')) return homeHasLive() ? homeLimitedOnly() : homeFallback();
   if (Home.data) homeRender();
   homeLoad();
 };
@@ -117,8 +117,12 @@ function homeRender() {
     '<div class="home-tiles">' + tiles.join('') + '</div>';
 }
 
-/** Beranda untuk dapur saja (mis. Chef): hanya tombol live dapur, tanpa data penjualan. */
-function homeKitchenOnly() {
+/** Role tanpa Beranda penjualan tetapi punya modul live (dapur, siap diantar, barista, RSVP). */
+function homeHasLive() {
+  return hasNav('kitchen') || hasNav('serve') || hasNav('bar_orders') || hasNav('rsvp');
+}
+
+function homeLimitedOnly() {
   homeKitchenDraw();
   homeKitchenLoad();
   if (!Home.kitTimer) Home.kitTimer = setInterval(function () {
@@ -127,13 +131,23 @@ function homeKitchenOnly() {
 }
 
 async function homeKitchenLoad() {
-  try { if (typeof kitBadgeLoad === 'function') await kitBadgeLoad(); } catch (e) { /* tampil dengan angka terakhir */ }
+  if (hasNav('kitchen') || hasNav('serve') || hasNav('bar_orders')) {
+    try { if (typeof kitBadgeLoad === 'function') await kitBadgeLoad(); } catch (e) { /* tampil dengan angka terakhir */ }
+  }
+  if (hasNav('rsvp')) {
+    try {
+      const r = await api('apiGetRsvp', App.token);
+      Home.rsvpN = r.rows.length;
+      Home.rsvpNext = r.rows.length ? r.rows[0].time : '';
+    } catch (e) { /* tampil dengan angka terakhir */ }
+  }
   if (App.view === 'home') homeKitchenDraw();
 }
 
 function homeKitchenDraw() {
   const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
   const big = [];
+  if (hasNav('rsvp')) big.push(homeLive('rsvp', 'RSVP hari ini', Home.rsvpN, 'tamu RSVP' + (Home.rsvpNext ? ' · pertama jam ' + Home.rsvpNext : ''), 'Tidak ada RSVP hari ini', 'green'));
   if (hasNav('kitchen')) big.push(homeLive('kitchen', 'Layar Dapur', kb.FOOD, 'tiket menunggu dimasak', 'Antrean dapur kosong', 'green'));
   if (hasNav('serve')) big.push(homeLive('serve', 'Siap diantar', kb.READY, '', 'Belum ada yang siap', 'green'));
   if (hasNav('bar_orders')) big.push(homeLive('bar_orders', 'Layar Barista', kb.BAR, 'minuman dari ' + (kb.BAR_TABLES || 0) + ' meja', 'Antrean minuman kosong', 'green'));
