@@ -466,7 +466,9 @@ function apiCompleteOrder(token, order) {
       const split = [];
       if (bill && (partial || priorPaid)) split.push('Split bill ke-' + (priorPaid + 1));
       if (tot.parts.length > 1) split.push('Bagi rata ' + tot.parts.length);
-      const guest = bill ? bill.guestName : cleanGuest_(order.guestName);
+      // Takeaway GoFood/GrabFood: nomor pesanan platform jadi nama di tiket dapur, Siap diantar, struk & riwayat
+      const platLabel = platMethods.length ? methodLabel_(platMethods[0]) + ' ' + platRef : '';
+      const guest = bill ? bill.guestName : cleanGuest_([platLabel, cleanGuest_(order.guestName)].filter(Boolean).join(' · '));
 
       const dateStr = backdate ? backdate.date : fmt_(now, 'yyyy-MM-dd');
       const stamp = backdate ? backdate.date + ' ' + backdate.time + ':00' : fmt_(now, 'yyyy-MM-dd HH:mm:ss');
