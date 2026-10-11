@@ -915,7 +915,7 @@ function cashSuggestions(total) {
 
 function lineHtml(l) {
   const saved = !!l.round;
-  const gross = unitOf(l) * l.qty;
+  const gross = unitP(l) * l.qty;
   const voided = saved && l.qty < l.savedQty;
   const pickQ = Pos.payLines ? Math.min(l.qty, Pos.payLines[l.lid] || 0) : null;
   const dim = Pos.payLines && !pickQ;

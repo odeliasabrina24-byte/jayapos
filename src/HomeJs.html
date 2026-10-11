@@ -93,6 +93,8 @@ function homeRender() {
   const big = [];
   if (hasNav('tables')) big.push('<button class="home-big dine" type="button" data-home="dine"><span class="hb-title">Dine-in</span><span class="hb-sub">Pilih meja</span></button>');
   if (hasNav('pos')) big.push('<button class="home-big take" type="button" data-home="take"><span class="hb-title">Take away</span><span class="hb-sub">Pesanan baru</span></button>');
+  if (hasNav('pos')) big.push('<button class="home-big take" type="button" data-home="grab"><span class="hb-title">GrabFood</span><span class="hb-sub">Pesanan Grab · harga online</span></button>');
+  if (hasNav('pos')) big.push('<button class="home-big take" type="button" data-home="gofood"><span class="hb-title">GoFood</span><span class="hb-sub">Pesanan Gojek · harga online</span></button>');
   // Live screens: big buttons like Dine-in. Green = something to make or deliver, white = nothing waiting.
   const kb = (typeof KitBadge !== 'undefined' && KitBadge.c) || {};
   // Ready to deliver, per station, counted per pesanan (same wording as Layar Barista)
@@ -188,7 +190,29 @@ function homeTakeaway() {
     if (posIsDirty() && !confirm('Perubahan di ' + Pos.ctx.tableName + ' belum disimpan. Tetap keluar tanpa menyimpan?')) return;
     posLeaveTable();
   }
+  if (!Pos.cart.length && (Pos.payment === 'GOFOOD' || Pos.payment === 'GRABFOOD')) Pos.payment = 'CASH';
   go('pos');
+}
+
+/* Pesanan GrabFood / GoFood: takeaway dengan harga online (+Delivery_Markup) dan nomor pesanan platform. */
+function homeChannel(k) {
+  if (Pos.ctx) {
+    if (posIsDirty() && !confirm('Perubahan di ' + Pos.ctx.tableName + ' belum disimpan. Tetap keluar tanpa menyimpan?')) return;
+    posLeaveTable();
+  }
+  go('pos');
+  posSetChannelWhenReady(k, 0);
+}
+
+/* Menunggu menu termuat dulu, supaya pemulihan draft tidak menimpa metode yang dipilih. */
+function posSetChannelWhenReady(k, tries) {
+  if (Pos.loaded) {
+    Pos.payment = k;
+    posAfterChange();
+    toast('Pesanan ' + (k === 'GRABFOOD' ? 'GrabFood' : 'GoFood') + ': harga online. Isi nomor pesanan saat bayar.');
+    return;
+  }
+  if (tries < 40) setTimeout(function () { posSetChannelWhenReady(k, tries + 1); }, 250);
 }
 
 /* ---------- Menu Habis ---------- */
@@ -290,6 +314,8 @@ async function soSave(id, soldOut, why) {
     else if (a === 'shift') go('shift');
     else if (a === 'dine') go('tables');
     else if (a === 'take') homeTakeaway();
+    else if (a === 'grab') homeChannel('GRABFOOD');
+    else if (a === 'gofood') homeChannel('GOFOOD');
     else if (a === 'reload') { homeLoad(); kitBadgeLoad(); }
   });
   $('kitPill').addEventListener('click', function (e) {

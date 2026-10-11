@@ -478,7 +478,7 @@ function apiCompleteOrder(token, order) {
         Subtotal: tot.subtotal, Discount: tot.discount, Grand_Total: tot.grand, Payment_Method: method,
         Amount_Paid: paidTotal, Change: changeTotal, Status: 'COMPLETED', Cashier_ID: user.id,
         Timestamp: stamp, Client_Ref: clientRef, Outlet_ID: settings.Outlet_ID || '', Notes: noteParts.join(' · '),
-        Order_Type: bill ? 'DINE_IN' : 'TAKEAWAY', Table_Name: bill ? bill.tableName : taNo,
+        Order_Type: bill ? 'DINE_IN' : (platMethods.length ? platMethods[0] : 'TAKEAWAY'), Table_Name: bill ? bill.tableName : taNo,
         Pax: bill ? (priorPaid ? 0 : bill.pax) : '',
         Service_Charge: tot.service, Tax: tot.tax, Order_ID: bill ? bill.id : '',
         Item_Discount: tot.itemDiscount, Bill_Discount: tot.billDiscount, Bill_Discount_Info: (komp ? 'KOMPLIMEN · ' : '') + discountInfo_(billDisc) + (billDiscReason ? ' · ' + billDiscReason : ''),
