@@ -719,14 +719,14 @@ function posMods(lid) {
     '<div class="mod-list">' + list.map(function (m) {
       const off = m.soldOut && !chosen[m.id];
       return '<button type="button" class="mod-opt' + (chosen[m.id] ? ' active' : '') + (off ? ' sold-out' : '') + '" data-m="' + esc(m.id) + '"' + (off ? ' disabled' : '') +
-        '><span>' + esc(m.name) + (off ? ' <i class="habis-tag">HABIS</i>' : '') + '</span><b>+' + rp(m.price) + '</b></button>';
+        '><span>' + esc(m.name) + (off ? ' <i class="habis-tag">HABIS</i>' : '') + '</span><b>+' + rp(pm(m.price)) + '</b></button>';
     }).join('') + '</div>' +
     (l.qty > 1 ? '<label class="field"><span>Untuk berapa porsi?</span><input id="modQty" type="number" inputmode="numeric" min="1" max="' + l.qty + '" value="' + l.qty + '">' +
       '<span class="help">Isi lebih kecil dari ' + l.qty + ' kalau tambahannya hanya untuk sebagian (contoh: 1 dari 2 pakai vanilla). Sisanya tanpa tambahan, dan baris akan dipisah.</span></label>' : '') +
     '<div class="sum-row"><span>Harga per porsi</span><b id="modUnit"></b></div>';
   const paint = function () {
     const ids = Object.keys(chosen).filter(function (k) { return chosen[k]; });
-    $('modUnit').textContent = rp(l.price + ids.reduce(function (a, id) { return a + (Pos.byId[id] ? Pos.byId[id].price : 0); }, 0));
+    $('modUnit').textContent = rp(pm(l.price) + ids.reduce(function (a, id) { return a + (Pos.byId[id] ? pm(Pos.byId[id].price) : 0); }, 0));
   };
   openCustom({
     title: 'Tambahan: ' + l.name, html: html, submitLabel: 'Simpan',
