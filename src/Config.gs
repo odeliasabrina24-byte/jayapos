@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.59';
+const APP_VERSION = '3.4.60';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -29,6 +29,8 @@ const PAYMENT_METHODS = {
 /** Label for a bill paid with more than one method (split bill). Stored as Payment_Method = MIXED. */
 const MIXED_LABEL = 'Campuran';
 /** Order of the payment buttons on the POS (an object's key order is not kept when sent to the phone). */
+/** GoFood & GrabFood charge this % more than dine-in / take away prices. */
+const DELIVERY_MARKUP_PCT = 25;
 const PAYMENT_ORDER = ['CASH', 'QRIS', 'QRIS_BCA', 'DEBIT', 'EDC_BRI', 'EDC_BCA', 'GOFOOD', 'GRABFOOD', 'BARTER', 'KOMPLIMEN', 'CREDIT_CARD', 'OTHER'];
 
 /** How roles and statuses are shown in the app (the codes in the Sheet stay in English). */

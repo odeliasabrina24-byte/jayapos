@@ -220,15 +220,18 @@ function priceMods_(ids, p, oldMods, products) {
  * fallback (optional): { lid: storedLine } — lines already saved on a table keep their saved
  * name / price if the product was switched off later, so the bill can still be paid.
  */
-function priceLines_(parsed, fallback, products) {
+function priceLines_(parsed, fallback, products, mk) {
+  mk = mk || 1;
   products = products || productMap_();
   return parsed.map(function (l) {
     const p = products[l.productId];
     const old = fallback && l.lid ? fallback[l.lid] : null;
     if (!p && !old) throw jayaError_('Ada produk di keranjang yang sudah tidak tersedia (' + l.productId + '). Menu akan dimuat ulang.', 'PRICE_CHANGED');
     if (p && p.soldOut && !old) throw jayaError_(p.name + ' sedang HABIS. Hapus dari keranjang. Menu sudah dimuat ulang.', 'PRICE_CHANGED');
-    const price = p ? p.price : Number(old.price) || 0;
-    const mods = priceMods_(l.mods, p, old ? old.mods : null, products);
+    const price = Math.round((p ? p.price : Number(old.price) || 0) * mk);
+    const mods = priceMods_(l.mods, p, old ? old.mods : null, products).map(function (m) {
+      return Object.assign({}, m, { price: Math.round((Number(m.price) || 0) * mk) });
+    });
     const total = lineUnit_({ price: price, mods: mods }) * l.qty;
     const name = p ? p.name : old.name;
     if (l.disc && l.disc.type === 'AMT' && l.disc.value > total) throw new Error('Diskon untuk ' + name + ' lebih besar dari harganya.');
@@ -272,7 +275,8 @@ function apiGetPosData(token) {
       modifierCategory: modifierCategory_(),
       canPay: canPay,
       shift: { required: isTrue_(s.Require_Shift), open: shiftOpen, canManage: hasPerm_(user, 'shift.manage') },
-      charges: chargeSettings_()
+      charges: chargeSettings_(),
+      deliveryPct: DELIVERY_MARKUP_PCT
     };
   });
 }
@@ -353,7 +357,10 @@ function apiCompleteOrder(token, order) {
     const methods = payments.map(function (p) { return p.method; });
     const openOrderId = String(order.openOrderId || '');
     const products = productMap_();
-    const takeawayLines = openOrderId ? null : priceLines_(parseLines_(order.items, false), null, products);
+    const platform = methods.some(function (m) { return m === 'GOFOOD' || m === 'GRABFOOD'; });
+    if (platform && methods.length > 1) throw new Error('GoFood/GrabFood tidak bisa dibagi atau digabung dengan metode lain.');
+    const mk = platform ? 1 + DELIVERY_MARKUP_PCT / 100 : 1;
+    const takeawayLines = openOrderId ? null : priceLines_(parseLines_(order.items, false), null, products, mk);
     const ch = chargeSettings_();
     const billDisc = readDiscount_(order.billDiscount, 'bill');
     const billDiscReason = billDisc ? String(order.billDiscount.reason || '').trim().slice(0, 60) : '';
@@ -389,7 +396,7 @@ function apiCompleteOrder(token, order) {
         lines = priceLines_(picked.pay.map(function (l) {
           return { lid: l.lid, productId: l.id, qty: l.qty, disc: l.disc || null, note: l.note || '',
                    mods: (l.mods || []).map(function (m) { return m.id; }) };
-        }), fallback, products);
+        }), fallback, products, mk);
       } else {
         lines = takeawayLines;
       }

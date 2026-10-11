@@ -37,6 +37,13 @@ Views.pos = function () {
 };
 
 /** Price of one portion including add-ons (syrup etc.). */
+/* GoFood / GrabFood: harga +Delivery_Markup (sama dengan server). Bukan untuk bagi bill. */
+function posMarkup() {
+  const platform = Pos.payment === 'GOFOOD' || Pos.payment === 'GRABFOOD';
+  return platform && !Pos.split ? 1 + (Number(Pos.deliveryPct) || 0) / 100 : 1;
+}
+function pm(v) { return Math.round((Number(v) || 0) * posMarkup()); }
+function unitP(l) { return pm(l.price) + (l.mods || []).reduce(function (a, m) { return a + pm(m.price); }, 0); }
 function unitOf(l) { return l.price + (l.mods || []).reduce(function (a, m) { return a + (Number(m.price) || 0); }, 0); }
 function modsKey(l) { return (l.mods || []).map(function (m) { return m.id; }).sort().join('+'); }
 /** Add-ons that can go on this product: Modifier_Category products of the same recipe group. */
@@ -90,6 +97,7 @@ async function posLoad() {
     const d = await api('apiGetPosData', App.token);
     const first = !Pos.loaded;
     Pos.charges = d.charges;
+    Pos.deliveryPct = d.deliveryPct || 0;
     let restoredCharges = false;
     if (first && !Pos.ctx) {
       Pos.applyService = d.charges.serviceOnTakeaway;
@@ -140,6 +148,7 @@ function posSetProducts(d) {
   Pos.canPay = d.canPay !== false;
   Pos.shift = d.shift || { required: false, open: true, canManage: false };
   Pos.charges = d.charges;
+  Pos.deliveryPct = d.deliveryPct || 0;
   Pos.byId = {};
   d.products.forEach(function (p) { Pos.byId[p.id] = p; });
   const present = [];
@@ -241,12 +250,12 @@ function posTotals() {
   const ch = Pos.charges;
   let subtotal = 0, itemDiscount = 0, items = 0, payItems = 0;
   Pos.cart.forEach(function (l) {
-    const gross = unitOf(l) * l.qty;
+    const gross = unitP(l) * l.qty;
     l._disc = Math.min(gross, discAmount(l.disc, gross));
     items += l.qty;
   });
   posPayLines().forEach(function (l) {
-    const gross = (l.mods ? unitOf(l) : l.price) * l.qty;
+    const gross = unitP(l) * l.qty;
     subtotal += gross;
     itemDiscount += Math.min(gross, discAmount(l.disc, gross));
     payItems += l.qty;
@@ -914,13 +923,13 @@ function lineHtml(l) {
   const noteBtn = !saved ? '<button class="link-btn small" type="button" data-act="note">' + (l.note ? 'Ubah catatan' : '+ Catatan') + '</button>' : '';
   const canMods = !saved && modsFor(l.id).length;
   const modBtn = canMods ? '<button class="link-btn small" type="button" data-act="mods">' + (l.mods && l.mods.length ? 'Ubah tambahan' : '+ ' + esc(modsLabel(l.id))) + '</button>' : '';
-  const modTxt = l.mods && l.mods.length ? '<div class="cl-mods">' + l.mods.map(function (m) { return '+ ' + esc(m.name) + ' <span class="muted">' + rp(m.price) + '</span>'; }).join('<br>') + '</div>' : '';
+  const modTxt = l.mods && l.mods.length ? '<div class="cl-mods">' + l.mods.map(function (m) { return '+ ' + esc(m.name) + ' <span class="muted">' + rp(pm(m.price)) + '</span>'; }).join('<br>') + '</div>' : '';
   const discTxt = l._disc ? '<div class="cl-disc">Diskon ' + esc(discLabel(l.disc)) + ' · -' + rp(l._disc) + '</div>' : '';
   const discBtn = Pos.allowDiscount && l.qty ? '<button class="link-btn small" type="button" data-act="disc">' + (l.disc ? 'Ubah diskon' : '+ Diskon') + '</button>' : '';
   const tags = (voided ? '<span class="pill bad">' + (l.qty ? '−' + (l.savedQty - l.qty) + ' akan di-void' : 'akan di-void') + '</span>' : '') +
     (pickQ ? '<span class="pill info">bayar ' + pickQ + (pickQ < l.qty ? ' dari ' + l.qty : '') + '</span>' : '');
   return '<div class="cart-line' + (saved ? ' saved' : ' new') + (dim ? ' dim' : '') + (l.qty === 0 ? ' gone' : '') + '" data-lid="' + esc(l.lid) + '">' +
-    '<div class="cl-main"><div class="cl-name">' + esc(l.name) + '</div><div class="cl-unit">' + rp(l.price) + '</div>' + modTxt + note + discTxt +
+    '<div class="cl-main"><div class="cl-name">' + esc(l.name) + '</div><div class="cl-unit">' + rp(pm(l.price)) + '</div>' + modTxt + note + discTxt +
     (tags ? '<div class="cl-tags">' + tags + '</div>' : '') +
     '<div class="cl-links">' + modBtn + noteBtn + discBtn + '</div></div>' +
     '<div class="qty"><button class="q-btn" type="button" data-act="dec" aria-label="Kurangi">−</button>' +
@@ -1220,6 +1229,7 @@ function posValidate() {
   if (Pos.billDisc.type === 'PCT' && Pos.billDisc.value > 100) return 'Diskon bill maksimal 100%.';
   if (Pos.billDisc.type === 'AMT' && Pos.billDisc.value > t.itemsNet) return 'Diskon bill lebih besar dari subtotal.';
   if (t.billDiscount > 0 && String(Pos.billDisc.reason || '').trim().length < 3) return 'Tulis alasan diskon bill (minimal 3 huruf).';
+  if (posMethods().some(function (m) { return m === 'GOFOOD' || m === 'GRABFOOD'; }) && posMethods().length > 1) return 'GoFood/GrabFood tidak bisa dibagi atau digabung.';
   if (posMethods().some(function (m) { return m === 'GOFOOD' || m === 'GRABFOOD'; }) && String(Pos.platformRef || '').trim().length < 3) {
     return 'Isi nomor pesanan GoFood/GrabFood (minimal 3 karakter).';
   }
