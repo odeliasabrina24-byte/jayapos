@@ -59,6 +59,17 @@ function rsvpRender() {
   });
 }
 
+/** Jam RSVP setiap 30 menit, 10:00 sampai 23:30. Jam lama di luar daftar tetap ditampilkan. */
+function rsvpTimeOptions_(current) {
+  const out = [];
+  for (let m = 10 * 60; m <= 23 * 60 + 30; m += 30) {
+    const t = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+    out.push({ value: t, label: t });
+  }
+  if (current && !out.some(function (o) { return o.value === current; })) out.push({ value: current, label: current + ' (di luar jadwal)' });
+  return out;
+}
+
 async function rsvpForm(r) {
   let opts = { menu: [], tables: [] };
   try { opts = await api('apiGetRsvpMenu', App.token); } catch (e) { opts = { menu: [], tables: [] }; }
@@ -68,7 +79,8 @@ async function rsvpForm(r) {
   const preChosen = r ? r.preorder.map(function (p) { return p.id; }) : [];
   const fields = [
       { name: 'date', label: 'Tanggal', value: r ? r.date : Rsvp.date, help: 'Format 2026-10-11' },
-      { name: 'time', label: 'Jam', value: r ? r.time : '19:00', help: 'Format 19:00' },
+      { name: 'time', label: 'Jam', type: 'select', options: rsvpTimeOptions_(r ? r.time : ''), value: r ? r.time : '19:00',
+        help: 'Pilih jam datang tamu (setiap 30 menit).' },
       { name: 'guest', label: 'Nama tamu', value: r ? r.guest : '' },
       { name: 'pax', label: 'Jumlah orang (pax)', type: 'number', value: r ? r.pax : 2 },
       { name: 'table', label: 'Meja', type: 'select', options: tableOpts, value: r ? r.table : '',
