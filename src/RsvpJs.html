@@ -109,31 +109,41 @@ async function rsvpForm(r) {
   });
 }
 
-/** Catatan per item pre-order, satu kolom per menu yang dipilih. Contoh: "tidak pedas". */
+/** Jumlah porsi dan catatan per menu pre-order. Contoh: Babi Kecap · 2 porsi · tidak pedas. */
 function rsvpNotesForm(r, v, menu, chosen) {
-  const names = {}, noteOf = {};
+  const names = {}, noteOf = {}, qtyOf = {};
   menu.forEach(function (p) { names[p.id] = p.name; });
-  if (r) r.preorder.forEach(function (p) { noteOf[p.id] = p.note || ''; });
+  if (r) r.preorder.forEach(function (p) { noteOf[p.id] = p.note || ''; qtyOf[p.id] = p.qty || 1; });
+  const fields = [];
+  chosen.forEach(function (id, i) {
+    fields.push({ name: 'qty' + i, label: (names[id] || id) + ' · jumlah porsi', type: 'number', min: 1, max: 99,
+      value: qtyOf[id] || 1, help: i === 0 ? 'Jumlah porsi untuk tamu ini.' : '' });
+    fields.push({ name: 'note' + i, label: (names[id] || id) + ' · catatan', value: noteOf[id] || '',
+      help: i === 0 ? 'Contoh: tidak pedas, es dipisah. Boleh dikosongkan.' : '' });
+  });
   openForm({
-    title: 'Catatan pre-order (boleh kosong)',
-    fields: chosen.map(function (id, i) {
-      return { name: 'note' + i, label: names[id] || id, value: noteOf[id] || '', help: i === 0 ? 'Contoh: tidak pedas, es dipisah' : '' };
-    }),
+    title: 'Pre-order: jumlah & catatan',
+    fields: fields,
     submitLabel: 'Simpan RSVP',
     onSubmit: async function (nv) {
-      const notes = {};
-      chosen.forEach(function (id, i) { notes[id] = String(nv['note' + i] || '').trim(); });
-      await rsvpSave(r, v, notes);
+      const items = {};
+      chosen.forEach(function (id, i) {
+        const q = Number(nv['qty' + i]);
+        if (!Number.isInteger(q) || q < 1 || q > 99) throw new Error('Jumlah porsi ' + (names[id] || id) + ' harus 1 sampai 99.');
+        items[id] = { qty: q, note: String(nv['note' + i] || '').trim() };
+      });
+      await rsvpSave(r, v, items);
     }
   });
 }
 
-async function rsvpSave(r, v, notes) {
+async function rsvpSave(r, v, items) {
   const qtyOf = {}, noteOf = {};
   if (r) r.preorder.forEach(function (p) { qtyOf[p.id] = p.qty; noteOf[p.id] = p.note || ''; });
   const data = Object.assign({ id: r ? r.id : '' }, v);
   data.preorder = (v.preorder || []).map(function (id) {
-    return { id: id, qty: qtyOf[id] || 1, note: notes ? (notes[id] || '') : (noteOf[id] || '') };
+    if (items && items[id]) return { id: id, qty: items[id].qty, note: items[id].note };
+    return { id: id, qty: qtyOf[id] || 1, note: noteOf[id] || '' };
   });
   await api('apiSaveRsvp', App.token, data);
   toast('RSVP disimpan.');
