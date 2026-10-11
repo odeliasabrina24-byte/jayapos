@@ -868,6 +868,8 @@ function posRenderCtx() {
   const canTables = App.nav.some(function (n) { return n.id === 'tables'; });
   if (!Pos.ctx) {
     $('posCtx').innerHTML = '<button class="ctx-chip plain" type="button" data-ctx="guest">Takeaway' + (Pos.guest ? ' · ' + esc(Pos.guest) : ' · + nama tamu') + '</button>' +
+      '<button class="ctx-chip' + (Pos.payment === 'GRABFOOD' ? ' on' : '') + '" type="button" data-ctx="ch-GRABFOOD">' + (Pos.payment === 'GRABFOOD' ? '✓ ' : '') + 'GrabFood</button>' +
+      '<button class="ctx-chip' + (Pos.payment === 'GOFOOD' ? ' on' : '') + '" type="button" data-ctx="ch-GOFOOD">' + (Pos.payment === 'GOFOOD' ? '✓ ' : '') + 'GoFood</button>' +
       (canTables ? '<button class="btn small" type="button" data-ctx="tables">Makan di tempat: pilih meja ›</button>' : '');
     $('cartTitle').textContent = 'Pesanan' + (Pos.guest ? ' · ' + Pos.guest : '');
     return;
@@ -1375,6 +1377,12 @@ function posBind() {
     else if (a === 'back') posBackToTables();
     else if (a === 'guest') posEditGuest();
     else if (a === 'more') posMore();
+    else if (a === 'ch-GRABFOOD' || a === 'ch-GOFOOD') {          // pesanan online: harga +Delivery_Markup, nomor pesanan saat bayar
+      const k = a.slice(3);
+      posSetPayment(Pos.payment === k ? 'CASH' : k);
+      posAfterChange();
+      if (Pos.payment === k) toast('Pesanan ' + (k === 'GRABFOOD' ? 'GrabFood' : 'GoFood') + ': harga online. Isi nomor pesanan saat bayar.');
+    }
   });
   $('posSearch').addEventListener('input', function (e) { Pos.search = e.target.value; posRenderProducts(); });
   $('posRefresh').addEventListener('click', function () { Pos.loaded = true; posLoad(); });
