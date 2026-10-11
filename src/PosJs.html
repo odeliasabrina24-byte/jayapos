@@ -1100,8 +1100,13 @@ function posError(msg) {
 
 /* ---------- Cart actions ---------- */
 /** Pre-order RSVP masuk sebagai baris baru (belum tersimpan). Tekan "Simpan ke meja" untuk kirim ke dapur. */
-function posPrefillPreorder(list) {
-  if (!list || !list.length || Pos.cart.some(function (l) { return l.round; })) return;   // bill sudah punya pesanan: jangan dobel
+function posPrefillPreorder(list, tries) {
+  tries = tries || 0;
+  if (!list || !list.length || !Pos.ctx || Pos.cart.some(function (l) { return l.round; })) return;   // bill sudah punya pesanan: jangan dobel
+  if (!Pos.loaded) {   // menu belum termuat (baru buka aplikasi): tunggu sebentar, jangan dilewati
+    if (tries < 40) setTimeout(function () { posPrefillPreorder(list, tries + 1); }, 250);
+    return;
+  }
   const skipped = [];
   list.forEach(function (x) {
     const p = Pos.byId[x.id];
