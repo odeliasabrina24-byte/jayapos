@@ -123,7 +123,7 @@ async function floorTap(tid) {
              { name: 'guest', label: 'Nama tamu (opsional)', value: r ? r.guest : '', help: 'Contoh: Pak Budi. Muncul di denah, di layar dapur dan di struk.' }],
     onSubmit: async function (v) {
       if (!Number.isInteger(v.pax) || v.pax < 1 || v.pax > 99) throw new Error('Pax harus 1 sampai 99.');
-      const order = await api('apiOpenTable', App.token, t.id, v.pax, v.guest.slice(0, 40));
+      const order = await api('apiOpenTable', App.token, t.id, v.pax, v.guest.slice(0, 40), r ? r.id : '');
       if (order.alreadyOpen) toast(t.name + ' baru saja dibuka oleh ' + order.openedBy + '. Ini bill-nya.', 'warn');
       posEnterTable(order);
       if (r && !order.alreadyOpen) posPrefillPreorder(r.preorder);

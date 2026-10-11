@@ -76,11 +76,19 @@ function sanitizePreorder_(list) {
   return out;
 }
 
+/** Tamu RSVP sudah datang (bill dibuka untuk RSVP-nya): ditandai SEATED dan tidak tampil lagi. */
+function rsvpMarkSeated_(rid, orderId, user) {
+  const row = readTable_('Reservations').rows.filter(function (r) { return String(r.Reservation_ID) === rid; })[0];
+  if (!row || cellText_(row.Date) !== todayStr_() || String(row.Status) !== 'BOOKED') return;
+  updateRow_('Reservations', row._row, { Status: 'SEATED', Updated_At: nowStamp_() });
+  audit_(user, 'SEATED', 'Reservation', rid, { order: orderId });
+}
+
 /** RSVP aktif hari ini (sudah diurutkan jam), lengkap dengan nomor baris. */
 function rsvpToday_(d) {
   return readTable_('Reservations').rows
     .map(function (r) { return Object.assign(rsvpRowToObj_(r), { row: r._row }); })
-    .filter(function (x) { return x.date === d && x.status !== 'CANCELLED' && x.table; })
+    .filter(function (x) { return x.date === d && x.status !== 'CANCELLED' && x.status !== 'SEATED' && x.table; })
     .sort(function (a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); });
 }
 
@@ -166,7 +174,7 @@ function apiGetRsvp(token, date) {
     const d = date ? rsvpCheckDate_(date) : todayStr_();
     const rows = readTable_('Reservations').rows
       .map(rsvpRowToObj_)
-      .filter(function (x) { return x.date === d && x.status !== 'CANCELLED'; })
+      .filter(function (x) { return x.date === d && x.status !== 'CANCELLED' && x.status !== 'SEATED'; })
       .sort(function (a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); });
     return { date: d, rows: rows };
   });

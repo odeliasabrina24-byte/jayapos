@@ -156,7 +156,7 @@ function nextOrderId_() {
 }
 
 /** Opens a bill on a free table, or returns the bill already open on it. */
-function apiOpenTable(token, tableId, pax, guestName) {
+function apiOpenTable(token, tableId, pax, guestName, rsvpId) {
   return run_(function () {
     const user = requirePerm_(token, 'tables.serve');
     const p = checkPax_(pax);
@@ -180,6 +180,7 @@ function apiOpenTable(token, tableId, pax, guestName) {
         Merged_Into: ''
       }]);
       audit_(user, 'TABLE_OPEN', 'Order', id, { table: table.name, pax: p, guest: guest });
+      if (rsvpId) rsvpMarkSeated_(String(rsvpId), id, user);   // tamu RSVP sudah datang: keluar dari daftar RSVP
       return publicOrder_(getOpenOrder_(id));
     });
   });
