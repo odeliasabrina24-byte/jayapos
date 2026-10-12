@@ -438,25 +438,24 @@ function apiKitchenCount(token) {
     if (hasPerm_(user, 'tables.serve')) {
       out.READY = serveBoard_().ready.length;      // same rounds as the Siap diantar screen
     }
-    const isWaiting = function (st) { return st === 'NEW' || st === 'PROSES'; };
-    rows.forEach(function (r) {
-      const waiting = function (col) { return isWaiting(String(r[col] || '')); };
-      const old = Number(r.Created_Ms) && (nowMs - Number(r.Created_Ms)) >= 15 * 60000;
-      // portions still to make (not tickets), per station
-      const leftOf = function (st) {
-        return ticketItems_(r).filter(function (i) { return i.st === st; })
-          .reduce(function (s, i) { return s + Math.max(0, (Number(i.qty) || 0) - (Number(i.rdy) || 0)); }, 0);
-      };
-      if (out.FOOD !== null && waiting('Food_Status')) {
-        out.FOOD++;
-        if (old) out.late++;
-      }
-      if (out.BAR !== null && waiting('Bar_Status')) {
-        const left = leftOf('BAR');
-        if (left > 0) { out.BAR += left; barTables[String(r.Table_Name || '')] = true; }
-        if (old) out.late++;
-      }
-    });
+    // Same tickets as the Layar Dapur / Layar Barista lists (ticketFromRow_ + stationQueue_), so the number matches the screen
+    const openOf = function (st) {
+      return rows.map(function (r) { return ticketFromRow_(r, st); }).filter(function (t) {
+        return t.id && t.status && t.items.length && t.date >= yesterday && (t.status === 'NEW' || t.status === 'PROSES');
+      });
+    };
+    const isOld = function (t) { return !!t.createdMs && (nowMs - t.createdMs) >= 15 * 60000; };
+    if (out.FOOD !== null) {
+      openOf('FOOD').forEach(function (t) { out.FOOD++; if (isOld(t)) out.late++; });
+    }
+    if (out.BAR !== null) {
+      openOf('BAR').forEach(function (t) {
+        // portions still to make on this ticket
+        const left = t.items.reduce(function (s, i) { return s + Math.max(0, i.qty - i.rdy); }, 0);
+        if (left > 0) { out.BAR += left; barTables[t.table] = true; }
+        if (isOld(t)) out.late++;
+      });
+    }
     out.BAR_TABLES = Object.keys(barTables).length;
     // Still to deliver (made or not yet made, not "Sudah diantar"), counted per pesanan: same tickets as Siap diantar
     // Ready and not yet delivered (ready part): the same portions the Siap diantar cards show
