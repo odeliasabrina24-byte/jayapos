@@ -97,7 +97,7 @@ const REPORTS = {
       const txRows = x.txs.map(function (tx) {
         return '<tr><td>' + esc(tx.id) + '</td><td>' + esc(tx.guest || '-') + '</td><td>' + esc(tx.label) + '</td><td class="num">' + bankRp(tx.amount) + '</td></tr>';
       }).join('');
-      const inner = x.txs.length ? '<div class="table-scroll"><table class="data"><thead><tr><th>No. transaksi</th><th>Tamu</th><th>Metode</th><th class="num">Di POS</th></tr></thead><tbody>' + txRows + '</tbody></table></div>'
+      const inner = x.txs.length ? '<div class="table-scroll"><table class="data" style="width:auto"><thead><tr><th>No. transaksi</th><th>Tamu</th><th>Metode</th><th class="num">Di POS</th></tr></thead><tbody>' + txRows + '</tbody></table></div>'
         : '<p class="small muted" style="margin:4px 0">Tidak ada transaksi POS (hanya setoran mutasi).</p>';
       return '<tr>' +
         '<td>' + esc(dateLabel(x.date)) + '</td>' +
