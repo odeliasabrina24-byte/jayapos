@@ -402,8 +402,9 @@ function bankReconReport_(r) {
     txs: txList.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0); }),
     totals: {
       app: rows.reduce(function (s, x) { return s + x.app; }, 0),
-      received: bankRows.reduce(function (s, x) { return s + x.received; }, 0),
-      fee: bankRows.reduce(function (s, x) { return s + x.fee; }, 0),
+      received: Math.round(rows.filter(function (x) { return x.hasBank; }).reduce(function (s, x) { return s + x.received; }, 0) * 100) / 100,
+      fee: Math.round(rows.filter(function (x) { return x.hasBank; }).reduce(function (s, x) { return s + x.fee; }, 0) * 100) / 100,
+      other: Math.round(rows.filter(function (x) { return x.hasBank && !x.app; }).reduce(function (s, x) { return s + x.received + x.fee; }, 0) * 100) / 100,
       diff: Math.round(bankRows.reduce(function (s, x) { return s + x.diff; }, 0) * 100) / 100
     }
   };

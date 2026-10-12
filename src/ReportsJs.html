@@ -109,7 +109,7 @@ const REPORTS = {
         '<th class="num">Biaya</th><th class="num">Selisih</th><th>Status</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
       : '<div class="empty">Belum ada penjualan atau setoran di periode ini.</div>';
     return '<div class="kpis">' + kpi('Total POS', rp(t.app)) + kpi('Masuk bank (bersih)', rp(t.received)) + kpi('Biaya bank', rp(t.fee)) + kpi('Selisih bank', rpSigned(t.diff)) + '</div>' +
-      '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Klik Rincian untuk melihat transaksi per baris.</p>' +
+      '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Klik ▼ untuk melihat transaksi per baris.' + (t.other ? ' Selisih tidak termasuk setoran tes atau transfer masuk sebesar ' + rp(t.other) + '.' : '') + '</p>' +
       '<div class="row-actions"><button class="btn primary" onclick="bankReconAdd()">+ Catat setoran mutasi</button></div>' +
       table;
   },
