@@ -27,6 +27,14 @@ function bankNum(s) {
   return Number(t.replace(/\./g, ''));
 }
 
+/** Buka / tutup rincian transaksi satu baris rekonsiliasi. */
+function bankReconToggle(i) {
+  const el = $('bkT' + i);
+  if (!el) return;
+  el.hidden = !el.hidden;
+  $('bkA' + i).textContent = el.hidden ? '▼' : '▲';
+}
+
 function bankReconAdd() {
   openForm({
     title: 'Catat setoran mutasi', submitLabel: 'Simpan',
@@ -75,27 +83,29 @@ async function reportView(type, filter) {
 const REPORTS = {
   bank_recon: function (d) {
     const t = d.totals;
+    const items = d.rows.map(function (x, i) {
+      const txsHtml = x.txs.length ? x.txs.map(function (tx) {
+        return '<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--line,#e6e0d8)">' +
+          '<span>' + esc(tx.id) + '<br><small class="muted">' + esc(tx.guest || '-') + ' · ' + esc(tx.label) + '</small></span>' +
+          '<b>' + rp(tx.amount) + '</b></div>';
+      }).join('') : '<p class="small muted" style="margin:6px 0">Tidak ada transaksi POS (hanya setoran mutasi).</p>';
+      const meta = [
+        'Masuk bank ' + (x.hasBank ? rp(x.received) : '-'),
+        'Biaya ' + (x.hasBank ? rp(x.fee) : '-'),
+        'Selisih ' + (x.hasBank && x.app ? rpSigned(x.diff) : '-'),
+        x.status + (x.notes ? ' · ' + x.notes : '')
+      ].join(' · ');
+      return '<div class="card" style="margin:0 0 10px;padding:0;overflow:hidden">' +
+        '<button type="button" onclick="bankReconToggle(' + i + ')" style="width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;background:none;border:0;text-align:left;cursor:pointer;font:inherit;color:inherit">' +
+        '<span><b>' + esc(dateLabel(x.date)) + ' · ' + esc(x.label) + '</b><br><small class="muted">' + fmtNum(x.count) + ' transaksi' + (x.guests ? ' · ' + esc(x.guests) : '') + '</small></span>' +
+        '<span style="white-space:nowrap"><b>' + (x.app ? rp(x.app) : '-') + '</b> <span id="bkA' + i + '">▼</span></span></button>' +
+        '<div class="small muted" style="padding:0 14px 10px">' + esc(meta) + '</div>' +
+        '<div id="bkT' + i + '" hidden style="padding:0 14px 10px">' + txsHtml + '</div></div>';
+    }).join('');
     return '<div class="kpis">' + kpi('Total POS', rp(t.app)) + kpi('Masuk bank (bersih)', rp(t.received)) + kpi('Biaya bank', rp(t.fee)) + kpi('Selisih bank', rpSigned(t.diff)) + '</div>' +
-      '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Setoran dari mutasi dicatat lewat tombol di bawah.</p>' +
+      '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Ketuk baris untuk melihat transaksinya.</p>' +
       '<div class="row-actions"><button class="btn primary" onclick="bankReconAdd()">+ Catat setoran mutasi</button></div>' +
-      dataTable([
-        { label: 'Tanggal', fn: function (x) { return dateLabel(x.date); } },
-        { label: 'Metode', key: 'label' },
-        { label: 'Jml trx', fn: function (x) { return x.count ? fmtNum(x.count) : '-'; }, num: true },
-        { label: 'Nama tamu', fn: function (x) { return x.guests || '-'; } },
-        { label: 'Di POS', fn: function (x) { return x.app ? rp(x.app) : '-'; }, num: true },
-        { label: 'Masuk bank', fn: function (x) { return x.hasBank ? rp(x.received) : '-'; }, num: true },
-        { label: 'Biaya', fn: function (x) { return x.hasBank ? rp(x.fee) : '-'; }, num: true },
-        { label: 'Selisih', fn: function (x) { return x.hasBank && x.app ? rpSigned(x.diff) : '-'; }, num: true },
-        { label: 'Status', key: 'status' },
-        { label: 'Catatan', key: 'notes' }
-      ], d.rows, 'Belum ada penjualan atau setoran di periode ini.') +
-      card('Per transaksi POS', dataTable([
-        { label: 'No. transaksi', key: 'id' },
-        { label: 'Tamu', fn: function (x) { return x.guest || '-'; } },
-        { label: 'Metode', key: 'label' },
-        { label: 'Di POS', fn: function (x) { return rp(x.amount); }, num: true }
-      ], d.txs, 'Belum ada transaksi di periode ini.'));
+      (items || '<div class="empty">Belum ada penjualan atau setoran di periode ini.</div>');
   },
   sales: function (d) {
     return '<div class="kpis">' + kpi('Penjualan bersih', rp(d.net)) + kpi('Transaksi', fmtNum(d.count)) + kpi('Rata-rata bill', rp(d.average)) + '</div>' +

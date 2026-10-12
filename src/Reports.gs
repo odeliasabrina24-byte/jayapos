@@ -368,6 +368,9 @@ function bankReconReport_(r) {
     const nt = String(b.Note || '').trim();
     if (nt && bank[k].notes.indexOf(nt) < 0) bank[k].notes.push(nt);
   });
+  const txByKey = {};
+  txList.forEach(function (x) { const kk = x.date + '|' + x.method; (txByKey[kk] = txByKey[kk] || []).push(x); });
+  const byId = function (x, y) { return x.id < y.id ? -1 : x.id > y.id ? 1 : 0; };
   const keys = {};
   Object.keys(app).concat(Object.keys(bank)).forEach(function (k) { keys[k] = true; });
   const rows = [];
@@ -388,7 +391,8 @@ function bankReconReport_(r) {
     else status = Math.abs(diff) < 0.5 ? 'Cocok' : 'Selisih';
     rows.push({ date: date, method: method, label: methodLabel_(method), app: a, hasBank: !!b, received: recv, fee: fee,
       diff: diff, status: status, banks: b ? b.banks.join(', ') : '', credits: b ? b.credits.join(', ') : '', notes: b ? b.notes.join(' · ') : '',
-      count: app[k] ? Object.keys(app[k].ids).length : 0, guests: app[k] ? app[k].guests.join(', ') : '' });
+      count: app[k] ? Object.keys(app[k].ids).length : 0, guests: app[k] ? app[k].guests.join(', ') : '',
+      txs: (txByKey[k] || []).slice().sort(byId) });
   });
   rows.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : (x.label < y.label ? -1 : 1); });
   const bankRows = rows.filter(function (x) { return x.hasBank; });
