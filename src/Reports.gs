@@ -341,7 +341,7 @@ function bankReconReport_(r) {
   const txList = [];
   d.txs.forEach(function (t) {
     (got[t.id] || [{ method: t.method, amount: t.total }]).forEach(function (p) {
-      txList.push({ date: t.date, id: t.id, guest: t.guestName || '', method: p.method, label: methodLabel_(p.method), amount: Math.round(p.amount * 100) / 100 });
+      if (p.amount > 0) txList.push({ date: t.date, id: t.id, guest: t.guestName || '', method: p.method, label: methodLabel_(p.method), amount: Math.round(p.amount * 100) / 100 });
       const k = t.date + '|' + p.method;
       app[k] = app[k] || { app: 0, ids: {}, guests: [] };
       app[k].app += p.amount;

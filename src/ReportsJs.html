@@ -91,7 +91,6 @@ const REPORTS = {
         { label: 'Catatan', key: 'notes' }
       ], d.rows, 'Belum ada penjualan atau setoran di periode ini.') +
       card('Per transaksi POS', dataTable([
-        { label: 'Tanggal', fn: function (x) { return dateLabel(x.date); } },
         { label: 'No. transaksi', key: 'id' },
         { label: 'Tamu', fn: function (x) { return x.guest || '-'; } },
         { label: 'Metode', key: 'label' },
