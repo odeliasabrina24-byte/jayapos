@@ -341,8 +341,10 @@ function bankReconReport_(r) {
   d.txs.forEach(function (t) {
     (got[t.id] || [{ method: t.method, amount: t.total }]).forEach(function (p) {
       const k = t.date + '|' + p.method;
-      app[k] = app[k] || { app: 0 };
+      app[k] = app[k] || { app: 0, ids: {}, guests: [] };
       app[k].app += p.amount;
+      app[k].ids[t.id] = true;
+      if (t.guestName && app[k].guests.indexOf(t.guestName) < 0) app[k].guests.push(t.guestName);
     });
   });
   const bank = {};
@@ -383,7 +385,8 @@ function bankReconReport_(r) {
     else if (!a) status = 'Ada di mutasi, tidak ada di POS';
     else status = Math.abs(diff) < 0.5 ? 'Cocok' : 'Selisih';
     rows.push({ date: date, method: method, label: methodLabel_(method), app: a, hasBank: !!b, received: recv, fee: fee,
-      diff: diff, status: status, banks: b ? b.banks.join(', ') : '', credits: b ? b.credits.join(', ') : '', notes: b ? b.notes.join(' · ') : '' });
+      diff: diff, status: status, banks: b ? b.banks.join(', ') : '', credits: b ? b.credits.join(', ') : '', notes: b ? b.notes.join(' · ') : '',
+      count: app[k] ? Object.keys(app[k].ids).length : 0, guests: app[k] ? app[k].guests.join(', ') : '' });
   });
   rows.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : (x.label < y.label ? -1 : 1); });
   const bankRows = rows.filter(function (x) { return x.hasBank; });

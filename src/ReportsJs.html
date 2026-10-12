@@ -81,6 +81,8 @@ const REPORTS = {
       dataTable([
         { label: 'Tanggal', fn: function (x) { return dateLabel(x.date); } },
         { label: 'Metode', key: 'label' },
+        { label: 'Jml trx', fn: function (x) { return x.count ? fmtNum(x.count) : '-'; }, num: true },
+        { label: 'Nama tamu', fn: function (x) { return x.guests || '-'; } },
         { label: 'Di POS', fn: function (x) { return x.app ? rp(x.app) : '-'; }, num: true },
         { label: 'Masuk bank', fn: function (x) { return x.hasBank ? rp(x.received) : '-'; }, num: true },
         { label: 'Biaya', fn: function (x) { return x.hasBank ? rp(x.fee) : '-'; }, num: true },
