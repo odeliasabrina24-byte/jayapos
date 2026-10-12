@@ -83,29 +83,35 @@ async function reportView(type, filter) {
 const REPORTS = {
   bank_recon: function (d) {
     const t = d.totals;
-    const items = d.rows.map(function (x, i) {
-      const txsHtml = x.txs.length ? x.txs.map(function (tx) {
-        return '<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--line,#e6e0d8)">' +
-          '<span>' + esc(tx.id) + '<br><small class="muted">' + esc(tx.guest || '-') + ' · ' + esc(tx.label) + '</small></span>' +
-          '<b>' + rp(tx.amount) + '</b></div>';
-      }).join('') : '<p class="small muted" style="margin:6px 0">Tidak ada transaksi POS (hanya setoran mutasi).</p>';
-      const meta = [
-        'Masuk bank ' + (x.hasBank ? rp(x.received) : '-'),
-        'Biaya ' + (x.hasBank ? rp(x.fee) : '-'),
-        'Selisih ' + (x.hasBank && x.app ? rpSigned(x.diff) : '-'),
-        x.status + (x.notes ? ' · ' + x.notes : '')
-      ].join(' · ');
-      return '<div class="card" style="margin:0 0 10px;padding:0;overflow:hidden">' +
-        '<button type="button" onclick="bankReconToggle(' + i + ')" style="width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;background:none;border:0;text-align:left;cursor:pointer;font:inherit;color:inherit">' +
-        '<span><b>' + esc(dateLabel(x.date)) + ' · ' + esc(x.label) + '</b><br><small class="muted">' + fmtNum(x.count) + ' transaksi' + (x.guests ? ' · ' + esc(x.guests) : '') + '</small></span>' +
-        '<span style="white-space:nowrap"><b>' + (x.app ? rp(x.app) : '-') + '</b> <span id="bkA' + i + '">▼</span></span></button>' +
-        '<div class="small muted" style="padding:0 14px 10px">' + esc(meta) + '</div>' +
-        '<div id="bkT' + i + '" hidden style="padding:0 14px 10px">' + txsHtml + '</div></div>';
+    const num = function (v) { return ' class="num"'; };
+    const rowsHtml = d.rows.map(function (x, i) {
+      const txRows = x.txs.map(function (tx) {
+        return '<tr><td>' + esc(tx.id) + '</td><td>' + esc(tx.guest || '-') + '</td><td>' + esc(tx.label) + '</td><td class="num">' + rp(tx.amount) + '</td></tr>';
+      }).join('');
+      const inner = x.txs.length ? '<div class="table-scroll"><table class="data"><thead><tr><th>No. transaksi</th><th>Tamu</th><th>Metode</th><th class="num">Di POS</th></tr></thead><tbody>' + txRows + '</tbody></table></div>'
+        : '<p class="small muted" style="margin:4px 0">Tidak ada transaksi POS (hanya setoran mutasi).</p>';
+      return '<tr>' +
+        '<td>' + esc(dateLabel(x.date)) + '</td>' +
+        '<td>' + esc(x.label) + '</td>' +
+        '<td class="num">' + (x.count ? fmtNum(x.count) : '-') + '</td>' +
+        '<td class="num">' + (x.app ? rp(x.app) : '-') + '</td>' +
+        '<td class="num">' + (x.hasBank ? rp(x.received) : '-') + '</td>' +
+        '<td class="num">' + (x.hasBank ? rp(x.fee) : '-') + '</td>' +
+        '<td class="num">' + (x.hasBank && x.app ? rpSigned(x.diff) : '-') + '</td>' +
+        '<td>' + esc(x.status) + (x.notes ? '<br><small class="muted">' + esc(x.notes) + '</small>' : '') + '</td>' +
+        '<td><button type="button" class="btn small" onclick="bankReconToggle(' + i + ')">Rincian <span id="bkA' + i + '">▼</span></button></td>' +
+        '</tr>' +
+        '<tr id="bkT' + i + '" hidden><td colspan="9">' + inner + '</td></tr>';
     }).join('');
+    const table = d.rows.length
+      ? '<div class="table-scroll"><table class="data"><thead><tr>' +
+        '<th>Tanggal</th><th>Metode</th><th class="num">Jml trx</th><th class="num">Di POS</th><th class="num">Masuk bank</th>' +
+        '<th class="num">Biaya</th><th class="num">Selisih</th><th>Status</th><th></th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+      : '<div class="empty">Belum ada penjualan atau setoran di periode ini.</div>';
     return '<div class="kpis">' + kpi('Total POS', rp(t.app)) + kpi('Masuk bank (bersih)', rp(t.received)) + kpi('Biaya bank', rp(t.fee)) + kpi('Selisih bank', rpSigned(t.diff)) + '</div>' +
-      '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Ketuk baris untuk melihat transaksinya.</p>' +
+      '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Klik Rincian untuk melihat transaksi per baris.</p>' +
       '<div class="row-actions"><button class="btn primary" onclick="bankReconAdd()">+ Catat setoran mutasi</button></div>' +
-      (items || '<div class="empty">Belum ada penjualan atau setoran di periode ini.</div>');
+      table;
   },
   sales: function (d) {
     return '<div class="kpis">' + kpi('Penjualan bersih', rp(d.net)) + kpi('Transaksi', fmtNum(d.count)) + kpi('Rata-rata bill', rp(d.average)) + '</div>' +
