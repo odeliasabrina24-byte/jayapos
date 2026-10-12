@@ -94,7 +94,7 @@ const REPORTS = {
         '<td>' + esc(dateLabel(x.date)) + '</td>' +
         '<td>' + esc(x.label) + '</td>' +
         '<td class="num">' + (x.count ? fmtNum(x.count) : '-') + '</td>' +
-        '<td><button type="button" class="btn small" onclick="bankReconToggle(' + i + ')">Rincian <span id="bkA' + i + '">▼</span></button></td>' +
+        '<td><button type="button" class="btn small" onclick="bankReconToggle(' + i + ')"><span id="bkA' + i + '">▼</span></button></td>' +
         '<td class="num">' + (x.app ? rp(x.app) : '-') + '</td>' +
         '<td class="num">' + (x.hasBank ? rp(x.received) : '-') + '</td>' +
         '<td class="num">' + (x.hasBank ? rp(x.fee) : '-') + '</td>' +
