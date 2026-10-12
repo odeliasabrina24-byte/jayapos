@@ -270,6 +270,7 @@ function apiGetReport(token, type, filter) {
     if (type === 'profit') return profitReport_(r);
     if (type === 'purchasing') return purchasingReport_(r);
     if (type === 'inventory') return inventoryReport_(r);
+    if (type === 'bank_recon') return bankReconReport_(r);
     throw new Error('Laporan tidak dikenal.');
   });
 }
@@ -319,6 +320,113 @@ function salesReport_(r) {
     stay: avgDuration_(txs),
     byDay: byDay, byHour: byHour, byPayment: byPayment, byType: byType, products: products.slice(0, 100), categories: categories
   };
+}
+
+/** Rekonsiliasi: total POS per tanggal & metode (termasuk tunai) dibandingkan setoran yang dicatat dari mutasi bank. */
+const BANK_NO_BANK_ = ['CASH', 'BARTER', 'KOMPLIMEN'];
+const BANK_PLATFORM_ = ['GOFOOD', 'GRABFOOD'];
+function bankReconReport_(r) {
+  const d = salesData_(r.from, r.to);
+  const ids = {};
+  d.txs.forEach(function (t) { ids[t.id] = t; });
+  const got = {};
+  try {
+    readSince_('Payments', 'Date', r.from).forEach(function (p) {
+      const id = String(p.Transaction_ID);
+      if (!ids[id]) return;
+      (got[id] = got[id] || []).push({ method: String(p.Method), amount: moneyNum_(p.Amount) || 0 });
+    });
+  } catch (e) { /* no Payments yet */ }
+  const app = {};
+  d.txs.forEach(function (t) {
+    (got[t.id] || [{ method: t.method, amount: t.total }]).forEach(function (p) {
+      const k = t.date + '|' + p.method;
+      app[k] = app[k] || { app: 0 };
+      app[k].app += p.amount;
+    });
+  });
+  const bank = {};
+  let lines = [];
+  try { lines = readTable_('Bank_Recon').rows; } catch (e) { lines = []; }
+  lines.forEach(function (b) {
+    const td = dateText_(b.Tx_Date);
+    if (!td || td < r.from || td > r.to) return;
+    const m = String(b.Method || '').trim();
+    const k = td + '|' + m;
+    bank[k] = bank[k] || { received: 0, fee: 0, n: 0, banks: [], credits: [] };
+    bank[k].received += Number(b.Received) || 0;
+    bank[k].fee += Number(b.Fee) || 0;
+    bank[k].n++;
+    const bn = String(b.Bank || '').trim();
+    if (bn && bank[k].banks.indexOf(bn) < 0) bank[k].banks.push(bn);
+    const cd = dateText_(b.Credit_Date);
+    if (cd && bank[k].credits.indexOf(cd) < 0) bank[k].credits.push(cd);
+  });
+  const keys = {};
+  Object.keys(app).concat(Object.keys(bank)).forEach(function (k) { keys[k] = true; });
+  const rows = [];
+  Object.keys(keys).forEach(function (k) {
+    const parts = k.split('|');
+    const date = parts[0], method = parts[1];
+    const a = app[k] ? Math.round(app[k].app * 100) / 100 : 0;
+    const b = bank[k] || null;
+    if (!a && !b) return;
+    const recv = b ? Math.round(b.received * 100) / 100 : 0;
+    const fee = b ? Math.round(b.fee * 100) / 100 : 0;
+    const diff = Math.round((a - recv - fee) * 100) / 100;
+    let status;
+    if (!b && BANK_NO_BANK_.indexOf(method) >= 0) status = method === 'CASH' ? 'Tunai, masuk Kas & Shift' : 'Tidak lewat bank';
+    else if (!b && BANK_PLATFORM_.indexOf(method) >= 0) status = 'Lewat platform, belum dicatat';
+    else if (!b) status = 'Belum ada di mutasi';
+    else if (!a) status = 'Ada di mutasi, tidak ada di POS';
+    else status = Math.abs(diff) < 0.5 ? 'Cocok' : 'Selisih';
+    rows.push({ date: date, method: method, label: methodLabel_(method), app: a, hasBank: !!b, received: recv, fee: fee,
+      diff: diff, status: status, banks: b ? b.banks.join(', ') : '', credits: b ? b.credits.join(', ') : '' });
+  });
+  rows.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : (x.label < y.label ? -1 : 1); });
+  const bankRows = rows.filter(function (x) { return x.hasBank; });
+  return {
+    type: 'bank_recon', from: r.from, to: r.to, rows: rows,
+    totals: {
+      app: rows.reduce(function (s, x) { return s + x.app; }, 0),
+      received: bankRows.reduce(function (s, x) { return s + x.received; }, 0),
+      fee: bankRows.reduce(function (s, x) { return s + x.fee; }, 0),
+      diff: Math.round(bankRows.reduce(function (s, x) { return s + x.diff; }, 0) * 100) / 100
+    }
+  };
+}
+
+/** Setoran dari mutasi bank yang dicatat owner/admin (satu baris per kredit di mutasi). */
+function apiSaveBankLine(token, data) {
+  return run_(function () {
+    const user = requirePerm_(token, 'reports.view');
+    data = data || {};
+    const bank = cleanText_(data.bank, 20).toUpperCase();
+    const txDate = String(data.txDate || '').trim();
+    const creditDate = String(data.creditDate || '').trim();
+    const method = String(data.method || '').trim().toUpperCase();
+    const received = Number(data.received);
+    const fee = Number(data.fee || 0);
+    const note = cleanText_(data.note, 150);
+    if (!bank) throw new Error('Isi nama bank (BCA atau BRI).');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(txDate)) throw new Error('Tanggal transaksi harus yyyy-mm-dd.');
+    if (creditDate && !/^\d{4}-\d{2}-\d{2}$/.test(creditDate)) throw new Error('Tanggal masuk bank harus yyyy-mm-dd.');
+    if (!PAYMENT_METHODS[method]) throw new Error('Metode bayar tidak dikenal.');
+    if (!(received >= 0) || received > 1000000000) throw new Error('Jumlah masuk di mutasi harus angka 0 atau lebih.');
+    if (!(fee >= 0) || fee > received + 1000000000) throw new Error('Biaya bank harus angka 0 atau lebih.');
+    return withLock_(function () {
+      const now = new Date();
+      const dateKey = fmt_(now, 'yyyyMMdd');
+      const id = 'BR-' + dateKey + '-' + String(nextSeq_('BRSEQ_' + dateKey, 1) + 1).padStart(4, '0');
+      appendObjects_('Bank_Recon', [{
+        Line_ID: id, Bank: bank, Tx_Date: txDate, Method: method, Credit_Date: creditDate,
+        Received: received, Fee: fee, Gross: received + fee, Note: note,
+        Entered_By: user.name, Entered_At: fmt_(now, 'yyyy-MM-dd HH:mm:ss')
+      }]);
+      audit_(user, 'BANK_LINE', 'Bank_Recon', id, { bank: bank, txDate: txDate, method: method, received: received, fee: fee });
+      return { ok: true, id: id };
+    });
+  });
 }
 
 function cogsReport_(r) {

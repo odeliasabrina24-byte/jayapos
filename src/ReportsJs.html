@@ -2,7 +2,7 @@
 /* ================= ReportsJs: laporan owner (Tahap 4) ================= */
 
 const Rep = { type: null, last: {} };
-const REPORT_NAMES = { sales: 'Penjualan', cogs: 'HPP', profit: 'Laba', purchasing: 'Pembelian', inventory: 'Stok' };
+const REPORT_NAMES = { sales: 'Penjualan', cogs: 'HPP', profit: 'Laba', purchasing: 'Pembelian', inventory: 'Stok', bank_recon: 'Rekonsiliasi Bank' };
 const GROUP_NAMES = { FOOD: 'Makanan', BEVERAGE: 'Minuman', SHARED: 'Bersama' };
 
 Views.sales_reports = function () { reportView('sales'); };
@@ -10,12 +10,49 @@ Views.cogs_reports = function () { reportView('cogs'); };
 Views.profit_reports = function () { reportView('profit'); };
 Views.purchasing_reports = function () { reportView('purchasing'); };
 Views.inventory_reports = function () { reportView('inventory'); };
+Views.bank_recon = function () { reportView('bank_recon'); };
 
 function kpi(label, value, cls) {
   return '<div class="kpi"><div class="kpi-label">' + esc(label) + '</div><div class="kpi-value' + (cls ? ' ' + cls : '') + '">' + value + '</div></div>';
 }
 function card(title, inner) { return '<div class="card rep-card"><h3>' + esc(title) + '</h3>' + inner + '</div>'; }
 function pctText(p) { return String(p).replace('.', ',') + '%'; }
+
+/** "1.234,56" or "1234.56" or "1234" -> number. A comma is the decimal mark (Indonesian); dots alone are thousands. */
+function bankNum(s) {
+  const t = String(s == null ? '' : s).trim();
+  if (!t) return NaN;
+  if (t.indexOf(',') >= 0) return Number(t.replace(/\./g, '').replace(',', '.'));
+  if (/^\d+\.\d{1,2}$/.test(t)) return Number(t);
+  return Number(t.replace(/\./g, ''));
+}
+
+function bankReconAdd() {
+  openForm({
+    title: 'Catat setoran mutasi', submitLabel: 'Simpan',
+    fields: [
+      { name: 'bank', label: 'Bank', type: 'select', value: 'BCA', options: [{ value: 'BCA', label: 'BCA' }, { value: 'BRI', label: 'BRI' }] },
+      { name: 'method', label: 'Metode bayar (dari POS)', type: 'select', value: 'QRIS', options: [
+        { value: 'QRIS', label: 'QRIS' }, { value: 'QRIS_BCA', label: 'QRIS BCA' }, { value: 'EDC_BRI', label: 'EDC BRI' },
+        { value: 'EDC_BCA', label: 'EDC BCA' }, { value: 'DEBIT', label: 'Debit' }, { value: 'OTHER', label: 'Lainnya (tes, transfer masuk)' }] },
+      { name: 'txDate', label: 'Tanggal transaksi (POS)', type: 'text', value: '', help: 'Format yyyy-mm-dd, contoh 2026-10-10' },
+      { name: 'creditDate', label: 'Tanggal masuk di mutasi', type: 'text', value: '', help: 'Format yyyy-mm-dd. Boleh dikosongkan' },
+      { name: 'received', label: 'Masuk di mutasi (Rp)', type: 'text', value: '', help: 'Jumlah bersih yang masuk. Pakai koma untuk desimal, contoh 260127,49' },
+      { name: 'fee', label: 'Biaya bank (Rp)', type: 'text', value: '', help: 'Isi 0 kalau tidak ada biaya' },
+      { name: 'note', label: 'Catatan', type: 'text', value: '' }
+    ],
+    onSubmit: async function (v) {
+      const recv = bankNum(v.received);
+      const fee = v.fee === '' || v.fee == null ? 0 : bankNum(v.fee);
+      if (!v.txDate) throw new Error('Isi tanggal transaksi.');
+      if (!(recv >= 0)) throw new Error('Isi jumlah yang masuk di mutasi.');
+      if (!(fee >= 0)) throw new Error('Biaya bank harus angka, isi 0 kalau tidak ada.');
+      await api('apiSaveBankLine', App.token, { bank: v.bank, method: v.method, txDate: v.txDate, creditDate: v.creditDate,
+        received: recv, fee: fee, note: v.note });
+      reportView('bank_recon');
+    }
+  });
+}
 
 async function reportView(type, filter) {
   Rep.type = type;
@@ -36,6 +73,21 @@ async function reportView(type, filter) {
 }
 
 const REPORTS = {
+  bank_recon: function (d) {
+    const t = d.totals;
+    return '<div class="kpis">' + kpi('Total POS', rp(t.app)) + kpi('Masuk bank (bersih)', rp(t.received)) + kpi('Biaya bank', rp(t.fee)) + kpi('Selisih bank', rpSigned(t.diff)) + '</div>' +
+      '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Setoran dari mutasi dicatat lewat tombol di bawah.</p>' +
+      '<div class="row-actions"><button class="btn primary" onclick="bankReconAdd()">+ Catat setoran mutasi</button></div>' +
+      dataTable([
+        { label: 'Tanggal', fn: function (x) { return dateLabel(x.date); } },
+        { label: 'Metode', key: 'label' },
+        { label: 'Di POS', fn: function (x) { return x.app ? rp(x.app) : '-'; }, num: true },
+        { label: 'Masuk bank', fn: function (x) { return x.hasBank ? rp(x.received) : '-'; }, num: true },
+        { label: 'Biaya', fn: function (x) { return x.hasBank ? rp(x.fee) : '-'; }, num: true },
+        { label: 'Selisih', fn: function (x) { return x.hasBank && x.app ? rpSigned(x.diff) : '-'; }, num: true },
+        { label: 'Status', key: 'status' }
+      ], d.rows, 'Belum ada penjualan atau setoran di periode ini.');
+  },
   sales: function (d) {
     return '<div class="kpis">' + kpi('Penjualan bersih', rp(d.net)) + kpi('Transaksi', fmtNum(d.count)) + kpi('Rata-rata bill', rp(d.average)) + '</div>' +
       '<div class="list-summary">Kotor ' + rp(d.gross) + ' − diskon item ' + rp(d.itemDiscount) + ' − diskon bill ' + rp(d.billDiscount) +

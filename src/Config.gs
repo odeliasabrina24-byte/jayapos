@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.69';
+const APP_VERSION = '3.4.70';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -118,6 +118,7 @@ const NAV = [
   { id: 'profit_reports',   section: 'Laporan',      label: 'Laporan Laba',     perms: ['reports.view'], ready: true },
   { id: 'purchasing_reports', section: 'Laporan',    label: 'Laporan Pembelian', perms: ['reports.view'], ready: true },
   { id: 'inventory_reports', section: 'Laporan',     label: 'Laporan Stok', perms: ['inventory.view'], ready: true },
+  { id: 'bank_recon',       section: 'Laporan',     label: 'Rekonsiliasi Bank', perms: ['reports.view'], ready: true },
 
   { id: 'products',         section: 'Admin',        label: 'Produk',          perms: ['products.view'], ready: true },
   { id: 'users',            section: 'Admin',        label: 'Pengguna',             perms: ['users.manage'], ready: true },
@@ -312,6 +313,10 @@ const SCHEMA = {
             'Counted_Cash', 'Difference', 'Left_For_Next', 'Final_Setor']
   },
   // Cash in / out of the drawer during a shift, and handing cash over (setor) to the owner / admin.
+  Bank_Recon: {
+    headers: ['Line_ID', 'Bank', 'Tx_Date', 'Method', 'Credit_Date', 'Received', 'Fee', 'Gross', 'Note', 'Entered_By', 'Entered_At'],
+    text: ['Line_ID', 'Bank', 'Tx_Date', 'Method', 'Credit_Date', 'Note', 'Entered_By', 'Entered_At']
+  },
   Cash_Movements: {
     headers: ['Movement_ID', 'Shift_ID', 'Timestamp', 'Date', 'Type', 'Amount', 'Reason', 'User_ID', 'User_Name', 'Status',
               'Confirmed_By', 'Confirmed_At', 'Confirm_Note', 'Count'],
