@@ -387,7 +387,7 @@ function bankReconReport_(r) {
     if (!b && BANK_NO_BANK_.indexOf(method) >= 0) status = method === 'CASH' ? 'Tunai, masuk Kas & Shift' : 'Tidak lewat bank';
     else if (!b && BANK_PLATFORM_.indexOf(method) >= 0) status = 'Lewat platform, belum dicatat';
     else if (!b) status = 'Belum ada di mutasi';
-    else if (!a) status = 'Ada di mutasi, tidak ada di POS';
+    else if (!a) status = 'Bukan penjualan POS (tes atau transfer masuk)';
     else status = Math.abs(diff) < 0.5 ? 'Cocok' : 'Selisih';
     rows.push({ date: date, method: method, label: methodLabel_(method), app: a, hasBank: !!b, received: recv, fee: fee,
       diff: diff, status: status, banks: b ? b.banks.join(', ') : '', credits: b ? b.credits.join(', ') : '', notes: b ? b.notes.join(' · ') : '',
@@ -395,7 +395,8 @@ function bankReconReport_(r) {
       txs: (txByKey[k] || []).slice().sort(byId) });
   });
   rows.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : (x.label < y.label ? -1 : 1); });
-  const bankRows = rows.filter(function (x) { return x.hasBank; });
+  // Total bank hanya dari baris yang ada penjualan POS; setoran tanpa penjualan (tes/transfer) tampil sendiri di tabel
+  const bankRows = rows.filter(function (x) { return x.hasBank && x.app; });
   return {
     type: 'bank_recon', from: r.from, to: r.to, rows: rows,
     txs: txList.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0); }),
