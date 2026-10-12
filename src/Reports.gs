@@ -338,8 +338,10 @@ function bankReconReport_(r) {
     });
   } catch (e) { /* no Payments yet */ }
   const app = {};
+  const txList = [];
   d.txs.forEach(function (t) {
     (got[t.id] || [{ method: t.method, amount: t.total }]).forEach(function (p) {
+      txList.push({ date: t.date, id: t.id, guest: t.guestName || '', method: p.method, label: methodLabel_(p.method), amount: Math.round(p.amount * 100) / 100 });
       const k = t.date + '|' + p.method;
       app[k] = app[k] || { app: 0, ids: {}, guests: [] };
       app[k].app += p.amount;
@@ -392,6 +394,7 @@ function bankReconReport_(r) {
   const bankRows = rows.filter(function (x) { return x.hasBank; });
   return {
     type: 'bank_recon', from: r.from, to: r.to, rows: rows,
+    txs: txList.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0); }),
     totals: {
       app: rows.reduce(function (s, x) { return s + x.app; }, 0),
       received: bankRows.reduce(function (s, x) { return s + x.received; }, 0),

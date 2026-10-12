@@ -89,7 +89,14 @@ const REPORTS = {
         { label: 'Selisih', fn: function (x) { return x.hasBank && x.app ? rpSigned(x.diff) : '-'; }, num: true },
         { label: 'Status', key: 'status' },
         { label: 'Catatan', key: 'notes' }
-      ], d.rows, 'Belum ada penjualan atau setoran di periode ini.');
+      ], d.rows, 'Belum ada penjualan atau setoran di periode ini.') +
+      card('Per transaksi POS', dataTable([
+        { label: 'Tanggal', fn: function (x) { return dateLabel(x.date); } },
+        { label: 'No. transaksi', key: 'id' },
+        { label: 'Tamu', fn: function (x) { return x.guest || '-'; } },
+        { label: 'Metode', key: 'label' },
+        { label: 'Di POS', fn: function (x) { return rp(x.amount); }, num: true }
+      ], d.txs, 'Belum ada transaksi di periode ini.'));
   },
   sales: function (d) {
     return '<div class="kpis">' + kpi('Penjualan bersih', rp(d.net)) + kpi('Transaksi', fmtNum(d.count)) + kpi('Rata-rata bill', rp(d.average)) + '</div>' +
