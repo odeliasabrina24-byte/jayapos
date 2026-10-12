@@ -27,6 +27,15 @@ function bankNum(s) {
   return Number(t.replace(/\./g, ''));
 }
 
+/** Rupiah dengan 2 desimal untuk laporan rekonsiliasi: 5675.13 -> "Rp 5.675,13". */
+function bankRp(n) {
+  const v = Math.round((Number(n) || 0) * 100) / 100;
+  const parts = Math.abs(v).toFixed(2).split('.');
+  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return (v < 0 ? '-' : '') + 'Rp ' + intPart + ',' + parts[1];
+}
+function bankRpSigned(n) { return (Number(n) > 0 ? '+' : '') + bankRp(n); }
+
 /** Buka / tutup rincian transaksi satu baris rekonsiliasi. */
 function bankReconToggle(i) {
   const el = $('bkT' + i);
@@ -86,7 +95,7 @@ const REPORTS = {
     const num = function (v) { return ' class="num"'; };
     const rowsHtml = d.rows.map(function (x, i) {
       const txRows = x.txs.map(function (tx) {
-        return '<tr><td>' + esc(tx.id) + '</td><td>' + esc(tx.guest || '-') + '</td><td>' + esc(tx.label) + '</td><td class="num">' + rp(tx.amount) + '</td></tr>';
+        return '<tr><td>' + esc(tx.id) + '</td><td>' + esc(tx.guest || '-') + '</td><td>' + esc(tx.label) + '</td><td class="num">' + bankRp(tx.amount) + '</td></tr>';
       }).join('');
       const inner = x.txs.length ? '<div class="table-scroll"><table class="data"><thead><tr><th>No. transaksi</th><th>Tamu</th><th>Metode</th><th class="num">Di POS</th></tr></thead><tbody>' + txRows + '</tbody></table></div>'
         : '<p class="small muted" style="margin:4px 0">Tidak ada transaksi POS (hanya setoran mutasi).</p>';
@@ -95,10 +104,10 @@ const REPORTS = {
         '<td>' + esc(x.label) + '</td>' +
         '<td class="num">' + (x.count ? fmtNum(x.count) : '-') + '</td>' +
         '<td><button type="button" class="btn small" onclick="bankReconToggle(' + i + ')"><span id="bkA' + i + '">▼</span></button></td>' +
-        '<td class="num">' + (x.app ? rp(x.app) : '-') + '</td>' +
-        '<td class="num">' + (x.hasBank ? rp(x.received) : '-') + '</td>' +
-        '<td class="num">' + (x.hasBank ? rp(x.fee) : '-') + '</td>' +
-        '<td class="num">' + (x.hasBank && x.app ? rpSigned(x.diff) : '-') + '</td>' +
+        '<td class="num">' + (x.app ? bankRp(x.app) : '-') + '</td>' +
+        '<td class="num">' + (x.hasBank ? bankRp(x.received) : '-') + '</td>' +
+        '<td class="num">' + (x.hasBank ? bankRp(x.fee) : '-') + '</td>' +
+        '<td class="num">' + (x.hasBank && x.app ? bankRpSigned(x.diff) : '-') + '</td>' +
         '<td>' + esc(x.status) + (x.notes ? '<br><small class="muted">' + esc(x.notes) + '</small>' : '') + '</td>' +
         '</tr>' +
         '<tr id="bkT' + i + '" hidden><td colspan="9">' + inner + '</td></tr>';
@@ -108,7 +117,7 @@ const REPORTS = {
         '<th>Tanggal</th><th>Metode</th><th class="num">Jml trx</th><th></th><th class="num">Di POS</th><th class="num">Masuk bank</th>' +
         '<th class="num">Biaya</th><th class="num">Selisih</th><th>Status</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
       : '<div class="empty">Belum ada penjualan atau setoran di periode ini.</div>';
-    return '<div class="kpis">' + kpi('Total POS', rp(t.app)) + kpi('Masuk bank (bersih)', rp(t.received)) + kpi('Biaya bank', rp(t.fee)) + kpi('Selisih bank', rpSigned(t.diff)) + (t.other ? kpi('Setoran tes (bukan penjualan)', rp(t.other)) : '') + '</div>' +
+    return '<div class="kpis">' + kpi('Total POS', bankRp(t.app)) + kpi('Masuk bank (bersih)', bankRp(t.received)) + kpi('Biaya bank', bankRp(t.fee)) + kpi('Selisih bank', bankRpSigned(t.diff)) + (t.other ? kpi('Setoran tes (bukan penjualan)', bankRp(t.other)) : '') + '</div>' +
       '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Klik ▼ untuk melihat transaksi per baris.' + '</p>' +
       '<div class="row-actions"><button class="btn primary" onclick="bankReconAdd()">+ Catat setoran mutasi</button></div>' +
       table;
