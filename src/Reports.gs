@@ -353,7 +353,7 @@ function bankReconReport_(r) {
     if (!td || td < r.from || td > r.to) return;
     const m = String(b.Method || '').trim();
     const k = td + '|' + m;
-    bank[k] = bank[k] || { received: 0, fee: 0, n: 0, banks: [], credits: [] };
+    bank[k] = bank[k] || { received: 0, fee: 0, n: 0, banks: [], credits: [], notes: [] };
     bank[k].received += Number(b.Received) || 0;
     bank[k].fee += Number(b.Fee) || 0;
     bank[k].n++;
@@ -361,6 +361,8 @@ function bankReconReport_(r) {
     if (bn && bank[k].banks.indexOf(bn) < 0) bank[k].banks.push(bn);
     const cd = dateText_(b.Credit_Date);
     if (cd && bank[k].credits.indexOf(cd) < 0) bank[k].credits.push(cd);
+    const nt = String(b.Note || '').trim();
+    if (nt && bank[k].notes.indexOf(nt) < 0) bank[k].notes.push(nt);
   });
   const keys = {};
   Object.keys(app).concat(Object.keys(bank)).forEach(function (k) { keys[k] = true; });
@@ -381,7 +383,7 @@ function bankReconReport_(r) {
     else if (!a) status = 'Ada di mutasi, tidak ada di POS';
     else status = Math.abs(diff) < 0.5 ? 'Cocok' : 'Selisih';
     rows.push({ date: date, method: method, label: methodLabel_(method), app: a, hasBank: !!b, received: recv, fee: fee,
-      diff: diff, status: status, banks: b ? b.banks.join(', ') : '', credits: b ? b.credits.join(', ') : '' });
+      diff: diff, status: status, banks: b ? b.banks.join(', ') : '', credits: b ? b.credits.join(', ') : '', notes: b ? b.notes.join(' · ') : '' });
   });
   rows.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : (x.label < y.label ? -1 : 1); });
   const bankRows = rows.filter(function (x) { return x.hasBank; });

@@ -85,7 +85,8 @@ const REPORTS = {
         { label: 'Masuk bank', fn: function (x) { return x.hasBank ? rp(x.received) : '-'; }, num: true },
         { label: 'Biaya', fn: function (x) { return x.hasBank ? rp(x.fee) : '-'; }, num: true },
         { label: 'Selisih', fn: function (x) { return x.hasBank && x.app ? rpSigned(x.diff) : '-'; }, num: true },
-        { label: 'Status', key: 'status' }
+        { label: 'Status', key: 'status' },
+        { label: 'Catatan', key: 'notes' }
       ], d.rows, 'Belum ada penjualan atau setoran di periode ini.');
   },
   sales: function (d) {
