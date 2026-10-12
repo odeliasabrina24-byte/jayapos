@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.68';
+const APP_VERSION = '3.4.69';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -142,6 +142,10 @@ const SETTINGS_DEFAULTS = [
   ['Cashier_History_Days', '2', 'Berapa hari riwayat penjualan yang bisa dilihat kasir (2 = hari ini + kemarin)'],
   ['Allow_Discount', 'TRUE', 'TRUE = kasir boleh memberi diskon; FALSE = hanya admin'],
   ['Max_Discount_Percent', '100', 'Batas diskon kasir dalam % (berlaku untuk diskon item dan diskon bill). Admin tidak dibatasi'],
+  ['Fee_QRIS_BCA_Pct', '0.7', 'Biaya bank QRIS BCA dalam % (laporan penjualan, perkiraan). 0 = tidak dihitung'],
+  ['Fee_QRIS_Pct', '0.58', 'Biaya bank QRIS umum (MID BCA) dalam % (laporan penjualan, perkiraan). 0 = tidak dihitung'],
+  ['Fee_EDC_BRI_Pct', '0.7', 'Biaya bank EDC BRI dalam % (laporan penjualan, perkiraan). 0 = tidak dihitung'],
+  ['Fee_EDC_BCA_Pct', '0.15', 'Biaya bank EDC BCA dalam % (laporan penjualan, perkiraan). 0 = tidak dihitung'],
   ['Service_Percent', '5', 'Service charge dalam %, ditambahkan di atas harga. 0 = tanpa service'],
   ['Service_Label', 'Service', 'Nama service charge di struk'],
   ['Service_On_Takeaway', 'FALSE', 'TRUE = pesanan takeaway juga otomatis kena service'],
@@ -168,6 +172,7 @@ const SETTING_LABELS = {
   Receipt_Phone: 'Telepon di struk', Receipt_Footer: 'Penutup struk', Receipt_Width_mm: 'Lebar struk (mm)', Notif_Topic: 'Topik notif HP (ntfy)',
   Tx_Prefix: 'Awalan nomor transaksi', Category_Order: 'Urutan kategori', Cashier_History_Days: 'Riwayat untuk kasir (hari)',
   Allow_Discount: 'Kasir boleh diskon', Max_Discount_Percent: 'Batas diskon kasir (%)', Service_Percent: 'Service (%)',
+  Fee_QRIS_BCA_Pct: 'Biaya QRIS BCA (%)', Fee_QRIS_Pct: 'Biaya QRIS umum (%)', Fee_EDC_BRI_Pct: 'Biaya EDC BRI (%)', Fee_EDC_BCA_Pct: 'Biaya EDC BCA (%)',
   Service_Label: 'Nama service', Service_On_Takeaway: 'Service untuk takeaway', Tax_Percent: 'Pajak (%)',
   Tax_Label: 'Nama pajak', Tax_On_Takeaway: 'Pajak untuk takeaway', Cash_Rounding: 'Pembulatan tunai (Rp)',
   Cash_Rounding_Mode: 'Cara pembulatan', Show_Product_Images: 'Tampilkan foto produk', Table_Areas: 'Area meja',

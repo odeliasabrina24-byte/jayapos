@@ -43,11 +43,13 @@ const REPORTS = {
       (d.rounding ? ' · pembulatan ' + rpSigned(d.rounding) : '') + ' · total diterima ' + rp(d.collected) + '</div>' +
       (d.stay ? '<div class="list-summary">⏱ Rata-rata lama makan di tempat: <b>' + fmtDur(d.stay.avg) + '</b> (terlama ' + fmtDur(d.stay.max) +
         ', ' + d.stay.bills + ' meja) · dihitung dari meja dibuka sampai dibayar</div>' : '') +
+      (d.feeTotal ? '<div class="list-summary">Biaya bank (perkiraan) ' + rp(d.feeTotal) + ' · setelah biaya ' + rp(d.afterFee) + '</div>' : '') +
       (d.voidCount ? '<p class="note-line">⚠ ' + d.voidCount + ' transaksi di-void (' + rp(d.voidTotal) + '), tidak dihitung di angka di atas.</p>' : '') +
       (d.byDay.length > 1 ? card('Penjualan bersih per hari', colChart(d.byDay, 'net', null, ['Penjualan bersih'])) : '') +
       '<div class="grid-2">' +
       card('Per kategori', barList(d.categories.map(function (c) { return { label: c.name, value: c.revenue, note: c.qty + ' terjual' }; }))) +
       card('Per metode bayar', barList(d.byPayment.map(function (m) { return { label: m.label, value: m.total, note: m.count + 'x' }; }))) +
+      (d.byFee.length ? card('Biaya bank (perkiraan)', barList(d.byFee.map(function (f) { return { label: f.label, value: f.fee, note: f.pct + '% dari ' + rp(f.base) }; }))) : '') +
       card('Makan di tempat vs takeaway', barList(d.byType.map(function (t) { return { label: t.type, value: t.net, note: t.count + ' bill' + (t.guests ? ', ' + t.guests + ' tamu' : '') }; }))) +
       card('Per jam', barList(d.byHour.map(function (h) { return { label: h.hour + ':00', value: h.net, note: h.count + ' bill' }; }))) +
       '</div>' +

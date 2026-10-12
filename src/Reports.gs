@@ -290,6 +290,14 @@ function salesReport_(r) {
     function (t) { return { hour: t.time.slice(0, 2), net: 0, count: 0 }; },
     function (h, t) { h.net += t.subtotal - t.discount; h.count++; }).sort(function (a, b) { return a.hour < b.hour ? -1 : 1; });
   const byPayment = paymentsByMethod_(txs, r.from);
+  // Biaya bank (perkiraan) per metode bayar non-tunai, dari Settings Fee_*_Pct
+  const feeKeys = { QRIS_BCA: 'Fee_QRIS_BCA_Pct', QRIS: 'Fee_QRIS_Pct', EDC_BRI: 'Fee_EDC_BRI_Pct', EDC_BCA: 'Fee_EDC_BCA_Pct' };
+  const feeMap = getSettingsMap_();
+  const byFee = byPayment.filter(function (m) { return feeKeys[m.method]; }).map(function (m) {
+    const pctFee = Number(feeMap[feeKeys[m.method]]) || 0;
+    return { method: m.method, label: m.label, base: m.total, pct: pctFee, fee: Math.round(m.total * pctFee / 100) };
+  }).filter(function (f) { return f.pct > 0; });
+  const feeTotal = byFee.reduce(function (s, f) { return s + f.fee; }, 0);
   const byType = groupSum_(txs, function (t) { return t.orderType; },
     function (t) { return { type: t.orderType === 'DINE_IN' ? 'Makan di tempat' : 'Takeaway', count: 0, net: 0, guests: 0 }; },
     function (m, t) { m.count++; m.net += t.subtotal - t.discount; m.guests += t.pax; });
@@ -304,6 +312,7 @@ function salesReport_(r) {
     itemDiscount: itemDiscount, billDiscount: discount - itemDiscount,
     service: sum(function (t) { return t.service; }), tax: sum(function (t) { return t.tax; }),
     rounding: sum(function (t) { return t.rounding; }), collected: collected,
+    byFee: byFee, feeTotal: feeTotal, afterFee: collected - feeTotal,
     voidCount: d.voids.length, voidTotal: d.voids.reduce(function (s, t) { return s + t.total; }, 0),
     voids: d.voids.map(function (t) { return { id: t.id, date: t.dateLabel, total: t.total, by: t.voidBy, reason: t.voidReason, cashier: t.cashier }; }),
     average: txs.length ? Math.round(collected / txs.length) : 0,
