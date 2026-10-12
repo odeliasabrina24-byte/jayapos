@@ -94,19 +94,19 @@ const REPORTS = {
         '<td>' + esc(dateLabel(x.date)) + '</td>' +
         '<td>' + esc(x.label) + '</td>' +
         '<td class="num">' + (x.count ? fmtNum(x.count) : '-') + '</td>' +
+        '<td><button type="button" class="btn small" onclick="bankReconToggle(' + i + ')">Rincian <span id="bkA' + i + '">▼</span></button></td>' +
         '<td class="num">' + (x.app ? rp(x.app) : '-') + '</td>' +
         '<td class="num">' + (x.hasBank ? rp(x.received) : '-') + '</td>' +
         '<td class="num">' + (x.hasBank ? rp(x.fee) : '-') + '</td>' +
         '<td class="num">' + (x.hasBank && x.app ? rpSigned(x.diff) : '-') + '</td>' +
         '<td>' + esc(x.status) + (x.notes ? '<br><small class="muted">' + esc(x.notes) + '</small>' : '') + '</td>' +
-        '<td><button type="button" class="btn small" onclick="bankReconToggle(' + i + ')">Rincian <span id="bkA' + i + '">▼</span></button></td>' +
         '</tr>' +
         '<tr id="bkT' + i + '" hidden><td colspan="9">' + inner + '</td></tr>';
     }).join('');
     const table = d.rows.length
       ? '<div class="table-scroll"><table class="data"><thead><tr>' +
-        '<th>Tanggal</th><th>Metode</th><th class="num">Jml trx</th><th class="num">Di POS</th><th class="num">Masuk bank</th>' +
-        '<th class="num">Biaya</th><th class="num">Selisih</th><th>Status</th><th></th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+        '<th>Tanggal</th><th>Metode</th><th class="num">Jml trx</th><th></th><th class="num">Di POS</th><th class="num">Masuk bank</th>' +
+        '<th class="num">Biaya</th><th class="num">Selisih</th><th>Status</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
       : '<div class="empty">Belum ada penjualan atau setoran di periode ini.</div>';
     return '<div class="kpis">' + kpi('Total POS', rp(t.app)) + kpi('Masuk bank (bersih)', rp(t.received)) + kpi('Biaya bank', rp(t.fee)) + kpi('Selisih bank', rpSigned(t.diff)) + '</div>' +
       '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Klik Rincian untuk melihat transaksi per baris.</p>' +
