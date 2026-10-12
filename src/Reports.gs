@@ -404,7 +404,7 @@ function bankReconReport_(r) {
       app: rows.reduce(function (s, x) { return s + x.app; }, 0),
       received: Math.round(rows.filter(function (x) { return x.hasBank; }).reduce(function (s, x) { return s + x.received; }, 0) * 100) / 100,
       fee: Math.round(rows.filter(function (x) { return x.hasBank; }).reduce(function (s, x) { return s + x.fee; }, 0) * 100) / 100,
-      other: Math.round(rows.filter(function (x) { return x.hasBank && !x.app; }).reduce(function (s, x) { return s + x.received; }, 0) * 100) / 100,
+      other: Math.round(rows.filter(function (x) { return x.hasBank && !x.app; }).reduce(function (s, x) { return s + x.received + x.fee; }, 0) * 100) / 100,
       diff: Math.round(bankRows.reduce(function (s, x) { return s + x.diff; }, 0) * 100) / 100
     }
   };

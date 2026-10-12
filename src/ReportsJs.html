@@ -117,8 +117,8 @@ const REPORTS = {
         '<th>Tanggal</th><th>Metode</th><th class="num">Jml trx</th><th></th><th class="num">Di POS</th><th class="num">Masuk bank</th>' +
         '<th class="num">Biaya</th><th class="num">Selisih</th><th>Status</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
       : '<div class="empty">Belum ada penjualan atau setoran di periode ini.</div>';
-    return '<div class="kpis">' + kpi('Total POS', bankRp(t.app)) + kpi('Masuk bank (bersih)', bankRp(t.received)) + kpi('Biaya bank', bankRp(t.fee)) + kpi('Selisih bank', bankRpSigned(t.diff)) + (t.other ? kpi('Setoran tes (bukan penjualan)', bankRp(t.other)) : '') + '</div>' +
-      '<p class="note-line">Total POS termasuk tunai. Tunai tidak lewat bank, jadi dicek di Kas & Shift. Klik ▼ untuk melihat transaksi per baris.' + '</p>' +
+    return '<div class="kpis">' + kpi('Total POS', bankRp(t.app)) + kpi('Masuk bank (bersih)', bankRp(t.received)) + kpi('Biaya bank', bankRp(t.fee)) + kpi('Selisih bank', bankRpSigned(t.diff)) + (t.other ? kpi('Setoran tes kotor (bukan penjualan)', bankRp(t.other)) : '') + '</div>' +
+      '<p class="note-line">Masuk bank (bersih) = Total POS + Setoran tes kotor − Biaya bank. Total POS termasuk tunai; tunai tidak lewat bank, dicek di Kas & Shift. Klik ▼ untuk melihat transaksi per baris.' + '</p>' +
       '<div class="row-actions"><button class="btn primary" onclick="bankReconAdd()">+ Catat setoran mutasi</button></div>' +
       table;
   },
