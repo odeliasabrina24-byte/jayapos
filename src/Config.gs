@@ -5,7 +5,7 @@
  * You normally do not need to edit this file.
  */
 
-const APP_VERSION = '3.4.84';
+const APP_VERSION = '3.4.85';
 
 // A login lasts up to 6 hours after the LAST action (Google's cache limit).
 const SESSION_SECONDS = 21600;
@@ -74,12 +74,12 @@ const ROLE_PERMISSIONS = {
   ADMIN:      ['*'],
   OWNER:      ['dashboard.view', 'history.view_all', 'receipt.view', 'products.view', 'products.view_cost',
                'reports.view', 'purchasing.view', 'inventory.view', 'suppliers.view', 'notifications.view',
-               'shift.view', 'cash.confirm', 'rsvp.manage'],
+               'shift.view', 'cash.confirm', 'rsvp.manage', 'cashbook.view'],
   CASHIER:    ['pos.sell', 'pos.order', 'tables.serve', 'tables.layout', 'history.view_recent', 'receipt.view', 'pos.void',
                'shift.manage', 'menu.soldout', 'rsvp.manage'],
   CHEF:       ['kitchen.food', 'tables.serve', 'menu.soldout', 'recipes.food', 'cogs.food', 'stock.food', 'ingredients.food', 'rsvp.manage'],
   BARISTA:    ['kitchen.bar', 'menu.soldout', 'recipes.beverage', 'cogs.beverage', 'stock.beverage', 'ingredients.beverage'],
-  PURCHASING: ['suppliers.manage', 'suppliers.view', 'purchasing.manage', 'purchasing.view', 'ingredients.purchasing']
+  PURCHASING: ['suppliers.manage', 'suppliers.view', 'purchasing.manage', 'purchasing.view', 'ingredients.purchasing', 'cashbook.manage', 'cashbook.view']
 };
 
 /**
@@ -119,6 +119,8 @@ const NAV = [
   { id: 'purchasing_reports', section: 'Laporan',    label: 'Laporan Pembelian', perms: ['reports.view'], ready: true },
   { id: 'inventory_reports', section: 'Laporan',     label: 'Laporan Stok', perms: ['inventory.view'], ready: true },
   { id: 'bank_recon',       section: 'Laporan',     label: 'Rekonsiliasi Bank', perms: ['reports.view'], ready: true },
+
+  { id: 'cashbook',         section: 'Keuangan',    label: 'Jurnal Kas',        perms: ['cashbook.manage', 'cashbook.view'], ready: true },
 
   { id: 'products',         section: 'Admin',        label: 'Produk',          perms: ['products.view'], ready: true },
   { id: 'users',            section: 'Admin',        label: 'Pengguna',             perms: ['users.manage'], ready: true },
@@ -313,6 +315,14 @@ const SCHEMA = {
             'Counted_Cash', 'Difference', 'Left_For_Next', 'Final_Setor']
   },
   // Cash in / out of the drawer during a shift, and handing cash over (setor) to the owner / admin.
+  Jurnal_Kas: {
+    headers: ['Entry_ID', 'Entry_Date', 'Description', 'Category', 'Account', 'Money_In', 'Money_Out', 'Proof_No', 'Entered_By', 'Entered_At', 'Updated_At'],
+    text: ['Entry_ID', 'Entry_Date', 'Description', 'Category', 'Account', 'Proof_No', 'Entered_By', 'Entered_At', 'Updated_At']
+  },
+  Kas_Kategori: {
+    headers: ['Category_ID', 'Category_Name', 'Active_Status', 'Created_At'],
+    text: ['Category_ID', 'Category_Name', 'Created_At']
+  },
   Bank_Recon: {
     headers: ['Line_ID', 'Bank', 'Tx_Date', 'Method', 'Credit_Date', 'Received', 'Fee', 'Gross', 'Note', 'Entered_By', 'Entered_At'],
     text: ['Line_ID', 'Bank', 'Tx_Date', 'Method', 'Credit_Date', 'Note', 'Entered_By', 'Entered_At']

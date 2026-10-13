@@ -25,7 +25,7 @@ function apiVersion() {
 }
 
 function include(name) {
-  const allowed = ['Styles', 'AppJs', 'PosJs', 'TablesJs', 'HistoryJs', 'AdminJs', 'InventoryJs', 'PurchasingJs', 'ReportsJs', 'ShiftJs', 'KitchenJs', 'HomeJs', 'RsvpJs'];
+  const allowed = ['Styles', 'AppJs', 'PosJs', 'TablesJs', 'HistoryJs', 'AdminJs', 'InventoryJs', 'PurchasingJs', 'ReportsJs', 'ShiftJs', 'KitchenJs', 'HomeJs', 'RsvpJs', 'CashbookJs'];
   if (allowed.indexOf(name) < 0) throw new Error('File tidak diizinkan: ' + name);
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
