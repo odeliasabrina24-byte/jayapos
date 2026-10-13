@@ -57,7 +57,7 @@ async function cashView(month) {
       add: function () { kasEntryForm(null); },
       open: function (el) {
         const e = KasState.data.entries.filter(function (x) { return x.id === el.dataset.id; })[0];
-        if (e) kasEntryForm(e);
+        if (e) kasEntryDetail(e);
       },
       cats: function () { kasCategoryManager(); }
     });
@@ -90,6 +90,43 @@ function kasEntryForm(e) {
       });
       toast('Transaksi tersimpan');
       cashView();
+    }
+  });
+}
+
+/** Detail transaksi: lihat, ubah, atau (Admin) hapus. */
+function kasEntryDetail(e) {
+  const d = KasState.data;
+  openCustom({
+    title: 'Transaksi ' + e.id,
+    readOnly: true,
+    html: '<table class="data"><tbody>' +
+      '<tr><th>Tanggal</th><td>' + esc(kasDate(e.date)) + '</td></tr>' +
+      '<tr><th>Keterangan</th><td>' + esc(e.desc) + '</td></tr>' +
+      '<tr><th>Kategori</th><td>' + esc(e.category) + '</td></tr>' +
+      '<tr><th>Akun</th><td>' + esc(e.accountLabel) + '</td></tr>' +
+      '<tr><th>Masuk</th><td>' + (e.in ? bankRp(e.in) : '-') + '</td></tr>' +
+      '<tr><th>Keluar</th><td>' + (e.out ? bankRp(e.out) : '-') + '</td></tr>' +
+      '<tr><th>No. bukti</th><td>' + esc(e.proof || '-') + '</td></tr>' +
+      '<tr><th>Dicatat oleh</th><td>' + esc(e.by) + '</td></tr></tbody></table>' +
+      '<div class="row-actions" style="margin-top:14px">' +
+      (d.canEdit ? '<button class="btn" type="button" data-act="edit">Ubah</button>' : '') +
+      (d.canDelete ? '<button class="btn danger" type="button" data-act="del">Hapus transaksi</button>' : '') + '</div>',
+    onOpen: function (body, close) {
+      body.onclick = async function (ev) {
+        const el = ev.target.closest('[data-act]');
+        if (!el) return;
+        if (el.dataset.act === 'edit') { close(); kasEntryForm(e); return; }
+        if (el.dataset.act === 'del') {
+          if (!window.confirm('Hapus transaksi ' + e.id + ' (' + e.desc + ')? Tidak bisa dibatalkan.')) return;
+          try {
+            await api('apiDeleteCashEntry', App.token, { id: e.id });
+            close();
+            toast('Transaksi dihapus');
+            cashView();
+          } catch (err) { toast(err.message, 'error'); }
+        }
+      };
     }
   });
 }

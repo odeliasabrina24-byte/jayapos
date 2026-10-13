@@ -64,6 +64,7 @@ function apiGetCashbook(token, d) {
 
     return {
       canEdit: hasPerm_(user, 'cashbook.manage'),
+      canDelete: hasPerm_(user, 'cashbook.delete'),
       month: month,
       accounts: KAS_ACCOUNTS,
       categories: kasCategories_(),
@@ -115,6 +116,23 @@ function apiSaveCashEntry(token, d) {
       appendObjects_('Jurnal_Kas', [fields]);
       audit_(user, 'KAS_CREATE', 'Jurnal_Kas', newId, { date: date, category: cat.name, account: account, in: money_in, out: money_out });
       return { ok: true, id: newId };
+    });
+  });
+}
+
+/** Hapus transaksi. Hanya Admin (cashbook.delete). Yang dihapus dicatat di Audit_Log. */
+function apiDeleteCashEntry(token, d) {
+  return run_(function () {
+    const user = requirePerm_(token, 'cashbook.delete');
+    const id = String((d && d.id) || '');
+    if (!id) throw new Error('ID transaksi kosong.');
+    return withLock_(function () {
+      const row = readTable_('Jurnal_Kas').rows.filter(function (r) { return String(r.Entry_ID) === id; })[0];
+      if (!row) throw new Error('Transaksi tidak ditemukan.');
+      deleteRowsWhere_('Jurnal_Kas', 'Entry_ID', id);
+      audit_(user, 'KAS_DELETE', 'Jurnal_Kas', id, { date: dateText_(row.Entry_Date), desc: String(row.Description || ''),
+        category: String(row.Category || ''), account: String(row.Account || ''), in: moneyNum_(row.Money_In) || 0, out: moneyNum_(row.Money_Out) || 0 });
+      return { ok: true };
     });
   });
 }
