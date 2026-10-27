@@ -1,0 +1,61 @@
+<script>
+/* ---------------- Printer Epson TM-T82X lewat ePOS SDK (JavaScript) ----------------
+ * IP printer di jaringan lokal. Halaman https memakai port 8043 (WebSocket aman),
+ * dan printer memakai sertifikat buatan sendiri (sudah diterima di tablet). */
+const EPSON_PRINTER_IP = '192.168.1.10';
+
+/** Kirim satu struk ke printer. buildFn(dev) mengisi isi struk. */
+function eposPrint(buildFn) {
+  return new Promise(function (resolve, reject) {
+    if (typeof epson === 'undefined' || !epson.ePOSDevice) {
+      reject(new Error('SDK printer belum termuat. Refresh halaman lalu coba lagi.'));
+      return;
+    }
+    const secure = window.location.protocol === 'https:';
+    const port = secure ? 8043 : 8008;
+    const ep = new epson.ePOSDevice();
+    ep.connect(EPSON_PRINTER_IP, port, function (code) {
+      if (code !== 'OK' && code !== 'SSL_CONNECT_OK') {
+        reject(new Error('Tidak bisa terhubung ke printer (' + code + '). Cek kabel LAN dan IP ' + EPSON_PRINTER_IP + '.'));
+        return;
+      }
+      ep.createDevice('local_printer', ep.DEVICE_TYPE_PRINTER, { crypto: secure, buffer: false }, function (dev, dcode) {
+        if (!dev) {
+          reject(new Error('Printer tidak siap (' + dcode + ').'));
+          return;
+        }
+        dev.timeout = 15000;
+        dev.onreceive = function (res) {
+          ep.deleteDevice(dev, function () {});
+          ep.disconnect();
+          if (res && res.success) resolve(true);
+          else reject(new Error('Printer menolak cetakan (' + (res && res.code) + '). Cek kertas dan tutup printer.'));
+        };
+        try {
+          buildFn(dev);
+          dev.send();
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+  });
+}
+
+/** Cetak struk yang sedang dibuka di layar. */
+async function printEposReceipt() {
+  if (!currentReceipt) return;
+  const text = receiptText(currentReceipt);
+  try {
+    toast('Mencetak...');
+    await eposPrint(function (dev) {
+      dev.addText(text + '\n');
+      dev.addFeedLine(3);
+      dev.addCut(dev.CUT_FEED);
+    });
+    toast('Struk tercetak');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+</script>
