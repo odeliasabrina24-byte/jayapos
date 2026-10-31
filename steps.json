@@ -1,0 +1,24 @@
+{
+  "gradle": {
+    "outputs": {
+      "gradle-version": "8.9"
+    },
+    "outcome": "success",
+    "conclusion": "success"
+  },
+  "apk": {
+    "outputs": {},
+    "outcome": "success",
+    "conclusion": "success"
+  },
+  "file": {
+    "outputs": {},
+    "outcome": "success",
+    "conclusion": "success"
+  },
+  "release": {
+    "outputs": {},
+    "outcome": "success",
+    "conclusion": "success"
+  }
+}
