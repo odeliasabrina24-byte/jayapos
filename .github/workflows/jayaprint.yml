@@ -16,8 +16,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -27,7 +27,17 @@ jobs:
           gradle-version: '8.9'
       - name: Buat APK
         working-directory: android
-        run: gradle --no-daemon assembleRelease
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon assembleRelease 2>&1 | tee "$RUNNER_TEMP/build.log"
+      - name: Tampilkan error build
+        if: failure()
+        shell: bash
+        run: |
+          # Tulis baris error sebagai anotasi supaya terlihat tanpa membuka log lengkap.
+          grep -E "error:|ERROR|FAILURE|What went wrong|Could not|> " "$RUNNER_TEMP/build.log" | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+          tail -25 "$RUNNER_TEMP/build.log" | while IFS= read -r l; do echo "::warning::$l"; done
       - name: Siapkan file
         run: |
           APK=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
