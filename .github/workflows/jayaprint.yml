@@ -1,0 +1,48 @@
+# Membuat aplikasi Android JayaPrint (file APK) setiap kali kode di android/ berubah,
+# lalu menaruhnya di halaman Releases supaya bisa diunduh langsung dari HP:
+#   https://github.com/odeliasabrina24-byte/jayapos/releases/latest/download/JayaPrint.apk
+# Kunci tanda tangan ada di android/app/jayaprint.jks — jangan dihapus, supaya update
+# bisa dipasang di atas versi lama.
+name: Buat aplikasi JayaPrint
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/jayaprint.yml']
+  workflow_dispatch:
+concurrency: jayaprint
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Buat APK
+        working-directory: android
+        run: gradle --no-daemon assembleRelease
+      - name: Siapkan file
+        run: |
+          APK=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          case "$APK" in *unsigned*) echo "APK belum ditandatangani"; exit 1;; esac
+          cp "$APK" JayaPrint.apk
+          VER=$(grep -o "appVersionName = '[^']*'" android/app/build.gradle | grep -o "'.*'" | tr -d "'")
+          echo "VER=$VER" >> "$GITHUB_ENV"
+      - name: Taruh di Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="jayaprint-v$VER"
+          NOTES="Aplikasi printer struk JayaPrint versi $VER. Buka di HP/tablet, unduh JayaPrint.apk, lalu pasang."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" JayaPrint.apk --clobber
+          else
+            gh release create "$TAG" JayaPrint.apk --title "JayaPrint $VER" --notes "$NOTES" --latest
+          fi

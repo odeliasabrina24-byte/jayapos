@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Versi aplikasi. Naikkan versionCode setiap kali ada perubahan, supaya HP mau memasang update.
+def appVersionCode = 1
+def appVersionName = '1.0'
+
+android {
+    namespace 'com.babikopijaya.jayaprint'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.babikopijaya.jayaprint'
+        minSdk 26
+        targetSdk 34
+        versionCode appVersionCode
+        versionName appVersionName
+    }
+
+    // Kunci tanda tangan aplikasi (android/app/jayaprint.jks). Jangan dihapus atau diganti:
+    // HP hanya mau memasang update kalau ditandatangani dengan kunci yang sama.
+    signingConfigs {
+        release {
+            storeFile file('jayaprint.jks')
+            storePassword 'jayaprint'
+            keyAlias 'jayaprint'
+            keyPassword 'jayaprint'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ikon: struk kertas dengan garis-garis, di atas latar gelap -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,30 L70,30 L70,78 L66,74 L62,78 L58,74 L54,78 L50,74 L46,78 L42,74 L38,78 Z" />
+    <path
+        android:fillColor="#7A2E1E"
+        android:pathData="M43,38 L65,38 L65,41 L43,41 Z M43,46 L65,46 L65,49 L43,49 Z M43,54 L58,54 L58,57 L43,57 Z M43,63 L65,63 L65,67 L43,67 Z" />
+</vector>
