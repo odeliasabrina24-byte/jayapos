@@ -21,24 +21,21 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+      - id: sdk
+        uses: android-actions/setup-android@v3
+      - id: gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
       - name: Buat APK
+        id: apk
         working-directory: android
         shell: bash
         run: |
           set -o pipefail
           gradle --no-daemon assembleRelease 2>&1 | tee "$RUNNER_TEMP/build.log"
-      - name: Tampilkan error build
-        if: failure()
-        shell: bash
-        run: |
-          # Tulis baris error sebagai anotasi supaya terlihat tanpa membuka log lengkap.
-          grep -E "error:|ERROR|FAILURE|What went wrong|Could not|> " "$RUNNER_TEMP/build.log" | head -40 | while IFS= read -r l; do echo "::error::$l"; done
-          tail -25 "$RUNNER_TEMP/build.log" | while IFS= read -r l; do echo "::warning::$l"; done
       - name: Siapkan file
+        id: file
         run: |
           APK=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
           case "$APK" in *unsigned*) echo "APK belum ditandatangani"; exit 1;; esac
@@ -46,6 +43,7 @@ jobs:
           VER=$(grep -o "appVersionName = '[^']*'" android/app/build.gradle | grep -o "'.*'" | tr -d "'")
           echo "VER=$VER" >> "$GITHUB_ENV"
       - name: Taruh di Releases
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -56,3 +54,16 @@ jobs:
           else
             gh release create "$TAG" JayaPrint.apk --title "JayaPrint $VER" --notes "$NOTES" --latest
           fi
+      - name: Simpan catatan build (branch ci-logs)
+        if: always()
+        shell: bash
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs" && cd "$RUNNER_TEMP/logs"
+          printf '%s\n' "$STEPS" > steps.json
+          cp "$RUNNER_TEMP/build.log" build.log 2>/dev/null || echo "(tidak ada build.log)" > build.log
+          git init -q && git checkout -q -b ci-logs
+          git -c user.name=ci -c user.email=ci@localhost add -A
+          git -c user.name=ci -c user.email=ci@localhost commit -qm "build ${{ github.sha }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-logs
