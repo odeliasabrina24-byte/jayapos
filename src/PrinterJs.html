@@ -42,6 +42,70 @@ function eposPrint(buildFn) {
   });
 }
 
+/* ---------------- JayaPrint (aplikasi Android sendiri, pengganti RawBT) ----------------
+ * JayaPOS menyusun perintah printer (ESC/POS) lalu menyerahkannya ke aplikasi JayaPrint
+ * lewat link intent://. JayaPrint mengirimnya ke printer (port 9100) dan langsung kembali
+ * ke JayaPOS. IP printer diatur di aplikasi JayaPrint, bukan di sini. */
+const JAYAPRINT_PKG = 'com.babikopijaya.jayaprint';
+const JAYAPRINT_APK = 'https://github.com/odeliasabrina24-byte/jayapos/releases/latest';
+
+/** Teks struk (baris dipisah \n) jadi perintah ESC/POS: nama usaha & TOTAL tebal-besar, lalu potong. */
+function escposFromReceiptText(text) {
+  const bytes = [0x1B, 0x40];                              // ESC @ reset printer
+  const push = function (s) {
+    s = String(s).normalize('NFD').replace(/[̀-ͯ]/g, '');
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      bytes.push(c === 10 || (c >= 32 && c < 127) ? c : 63); // selain ASCII jadi '?'
+    }
+  };
+  const big = function (on) {
+    bytes.push(0x1B, 0x45, on ? 1 : 0);                    // ESC E: tebal
+    bytes.push(0x1D, 0x21, on ? 0x01 : 0x00);              // GS !: tinggi 2x (lebar tetap, jadi baris tetap rapi)
+  };
+  text.split('\n').forEach(function (line, i) {
+    const emphasize = i === 1 || /^TOTAL\s/.test(line) || /^\s*\*\*\*/.test(line);
+    if (emphasize) big(true);
+    push(line + '\n');
+    if (emphasize) big(false);
+  });
+  bytes.push(0x1D, 0x56, 0x42, 0x03);                      // GS V B: maju lalu potong kertas
+  return bytes;
+}
+
+function bytesToBase64_(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 4096) s += String.fromCharCode.apply(null, bytes.slice(i, i + 4096));
+  return btoa(s);
+}
+
+/** Serahkan perintah printer ke aplikasi JayaPrint. Harus dipanggil langsung dari klik tombol. */
+function sendToJayaPrint(bytes) {
+  const url = 'intent://print#Intent;scheme=jayaprint;package=' + JAYAPRINT_PKG +
+              ';S.data=' + encodeURIComponent(bytesToBase64_(bytes)) +
+              ';S.browser_fallback_url=' + encodeURIComponent(JAYAPRINT_APK) + ';end';
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_top';            // JayaPOS jalan di dalam bingkai Google; link harus dibuka di halaman utama
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Cetak struk yang sedang dibuka di layar lewat JayaPrint (selalu 48 kolom = kertas 80mm). */
+function printJayaPrintReceipt() {
+  if (!currentReceipt) return;
+  const r = Object.assign({}, currentReceipt, {
+    header: Object.assign({}, currentReceipt.header || {}, { widthMm: 80 })
+  });
+  try {
+    sendToJayaPrint(escposFromReceiptText(receiptText(r)));
+  } catch (e) {
+    toast('Gagal membuka JayaPrint: ' + e.message, 'error');
+  }
+}
+
 /** Cetak struk yang sedang dibuka di layar. */
 async function printEposReceipt() {
   if (!currentReceipt) return;
